@@ -1,0 +1,38 @@
+version: "3.9"
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ovni
+      POSTGRES_PASSWORD: ovni_secret
+      POSTGRES_DB: ovni_wrapper
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./src/db/schema.sql:/docker-entrypoint-initdb.d/001_schema.sql
+      - ./src/db/billing_schema.sql:/docker-entrypoint-initdb.d/002_billing.sql
+      - ./src/db/provisioning_schema.sql:/docker-entrypoint-initdb.d/003_provisioning.sql
+      - ./src/db/messaging_schema.sql:/docker-entrypoint-initdb.d/004_messaging.sql
+      - ./src/db/audit_schema.sql:/docker-entrypoint-initdb.d/005_audit.sql
+      - ./src/db/webhooks_schema.sql:/docker-entrypoint-initdb.d/006_webhooks.sql
+      - ./src/db/openclaw_schema.sql:/docker-entrypoint-initdb.d/007_openclaw.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ovni -d ovni_wrapper"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+volumes:
+  pgdata:
