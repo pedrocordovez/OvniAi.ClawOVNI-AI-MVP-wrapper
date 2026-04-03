@@ -19,7 +19,8 @@ export interface ProvisionResult {
   tenantId:    string;
   apiKey:      string;
   keyPrefix:   string;
-  instanceId?: string;
+  instanceId:  string;
+  gatewayUrl:  string;
 }
 
 export async function provisionTenant(
@@ -94,31 +95,35 @@ export async function provisionTenant(
 
     await client.query("COMMIT");
 
-    // Provision OpenClaw instance (async, non-blocking)
-    // This happens AFTER the transaction commits so the tenant exists
-    let instanceId: string | undefined;
-    try {
-      const { provisionInstance } = await import("./instanceOrchestrator.js");
-      const instanceInfo = await provisionInstance(pg, {
-        tenantId,
-        tenantSlug:    data.companySlug,
-        anthropicKey:  config.anthropicApiKey,
-        defaultModel:  plan.model,
-        channels:      data.channels,
-        softwareStack: data.softwareStack,
-      });
-      instanceId = instanceInfo.instanceId;
-    } catch (err) {
-      // Instance provisioning failure is non-fatal for tenant creation
-      // Staff can manually provision later
-      console.warn("OpenClaw instance provisioning failed (non-fatal):", (err as Error).message);
+    // Provision OpenClaw instance — mandatory, tenant is not usable without it
+    const { provisionInstance } = await import("./instanceOrchestrator.js");
+    const instanceInfo = await provisionInstance(pg, {
+      tenantId,
+      tenantSlug:    data.companySlug,
+      anthropicKey:  config.anthropicApiKey,
+      defaultModel:  plan.model,
+      channels:      data.channels,
+      softwareStack: data.softwareStack,
+    });
+
+    // Configure channels inside the OpenClaw instance
+    if (data.channels && Object.keys(data.channels).length > 0) {
+      const { configureChannels } = await import("./channelManager.js");
+      await configureChannels(pg, instanceInfo.instanceId, data.channels);
+    }
+
+    // Configure software stack (skills) inside OpenClaw
+    if (data.softwareStack && Object.keys(data.softwareStack).length > 0) {
+      const { configureSoftwareStack } = await import("./channelManager.js");
+      await configureSoftwareStack(pg, instanceInfo.instanceId, data.softwareStack);
     }
 
     return {
       tenantId,
-      apiKey:    key.raw,
-      keyPrefix: key.prefix,
-      instanceId,
+      apiKey:      key.raw,
+      keyPrefix:   key.prefix,
+      instanceId:  instanceInfo.instanceId,
+      gatewayUrl:  instanceInfo.gatewayUrl,
     };
   } catch (err) {
     await client.query("ROLLBACK");

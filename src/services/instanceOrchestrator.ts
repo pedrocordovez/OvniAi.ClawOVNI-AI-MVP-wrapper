@@ -10,6 +10,7 @@ const OPENCLAW_IMAGE = process.env.OPENCLAW_IMAGE ?? "openclaw/openclaw:latest";
 const OPENCLAW_GATEWAY_PORT = 18789;
 const VOLUMES_BASE = process.env.OPENCLAW_VOLUMES_BASE ?? "/var/lib/ovni-ai/instances";
 const DOCKER_NETWORK = process.env.OPENCLAW_NETWORK ?? "ovni-ai-instances";
+const METERING_PROXY_URL = process.env.METERING_PROXY_URL ?? "http://host.docker.internal:3001";
 
 export interface ProvisionInstanceInput {
   tenantId:       string;
@@ -92,8 +93,11 @@ export async function provisionInstance(
     await exec("mkdir", ["-p", configVolume, workspaceVolume]);
 
     // Build environment variables for the container
+    // ANTHROPIC_API_BASE points to our metering proxy so all API calls
+    // flow through OVNI AI for token counting and billing
     const envVars = [
       `-e`, `ANTHROPIC_API_KEY=${input.anthropicKey}`,
+      `-e`, `ANTHROPIC_API_BASE=${METERING_PROXY_URL}`,
       `-e`, `OPENCLAW_GATEWAY_TOKEN=${gatewayToken}`,
       `-e`, `OPENCLAW_DEFAULT_MODEL=${input.defaultModel}`,
       `-e`, `OPENCLAW_GATEWAY_PORT=${OPENCLAW_GATEWAY_PORT}`,
