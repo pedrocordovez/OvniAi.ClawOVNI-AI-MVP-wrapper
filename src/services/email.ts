@@ -1,14 +1,34 @@
-import { Resend } from "resend";
+import { SESClient, SendEmailCommand } from "@aws-sdk/client-ses";
 import { config } from "../config.js";
 
-let resend: Resend | null = null;
-function getResend(): Resend {
-  if (!resend) {
-    const key = config.resendApiKey;
-    if (!key) throw new Error("RESEND_API_KEY not set");
-    resend = new Resend(key);
+let ses: SESClient | null = null;
+function getSES(): SESClient {
+  if (!ses) {
+    ses = new SESClient({ region: process.env.AWS_SES_REGION ?? "us-east-1" });
   }
-  return resend;
+  return ses;
+}
+
+async function sendEmail(to: string, subject: string, html: string, from?: string): Promise<void> {
+  const sender = from ?? `OVNI AI <${config.smtpFrom}>`;
+
+  if (config.nodeEnv !== "production") {
+    console.log(`\n[EMAIL -- dev mode, not sent]`);
+    console.log(`  To: ${to} | Subject: ${subject}`);
+    console.log("---------------------------------------------\n");
+    return;
+  }
+
+  const cmd = new SendEmailCommand({
+    Source: sender,
+    Destination: { ToAddresses: [to] },
+    Message: {
+      Subject: { Data: subject, Charset: "UTF-8" },
+      Body: { Html: { Data: html, Charset: "UTF-8" } },
+    },
+  });
+
+  await getSES().send(cmd);
 }
 
 export interface WelcomeEmailData {
@@ -47,39 +67,21 @@ export async function sendWelcomeEmail(data: WelcomeEmailData): Promise<void> {
     monthlyUSD,
   });
 
-  if (config.nodeEnv !== "production" || !config.resendApiKey) {
-    console.log("\n[EMAIL -- not sent in dev mode]");
-    console.log(`To:      ${data.to}`);
-    console.log(`Subject: Bienvenido a OVNI AI, ${data.companyName}! Tu cuenta esta activa`);
-    console.log(`API Key: ${data.apiKey}`);
-    console.log("---------------------------------------------\n");
-    return;
-  }
-
-  await getResend().emails.send({
-    from:    `OVNI AI <${config.smtpFrom}>`,
-    to:      data.to,
-    subject: `Bienvenido a OVNI AI, ${data.companyName}! Tu cuenta esta activa`,
+  await sendEmail(
+    data.to,
+    `Bienvenido a OVNI AI, ${data.companyName}! Tu cuenta esta activa`,
     html,
-  });
+  );
 }
 
 // ─── Send payment failed notification ────────────────────────────────────────
 
 export async function sendPaymentFailedEmail(data: PaymentFailedEmailData): Promise<void> {
-  const html = paymentFailedTemplate(data);
-
-  if (config.nodeEnv !== "production" || !config.resendApiKey) {
-    console.log(`\n[EMAIL -- payment failed] To: ${data.to}\n`);
-    return;
-  }
-
-  await getResend().emails.send({
-    from:    `OVNI AI <${config.smtpFrom}>`,
-    to:      data.to,
-    subject: `No pudimos procesar tu pago — OVNI AI`,
-    html,
-  });
+  await sendEmail(
+    data.to,
+    `No pudimos procesar tu pago — OVNI AI`,
+    paymentFailedTemplate(data),
+  );
 }
 
 // ─── Send internal ops alert ─────────────────────────────────────────────────
@@ -91,16 +93,10 @@ export async function sendOpsAlert(data: {
   planId:      string;
   error:       string;
 }): Promise<void> {
-  if (config.nodeEnv !== "production" || !config.resendApiKey) {
-    console.error("\n[OPS ALERT -- provisioning failed after payment]", data);
-    return;
-  }
-
-  await getResend().emails.send({
-    from:    `OVNI AI Alerts <alerts@ovni.ai>`,
-    to:      config.opsAlertEmail,
-    subject: `Provisioning failed: ${data.companyName} (${data.orderId})`,
-    html: `
+  await sendEmail(
+    config.opsAlertEmail,
+    `Provisioning failed: ${data.companyName} (${data.orderId})`,
+    `
       <h2>Provisioning failed after successful payment</h2>
       <table style="border-collapse:collapse">
         <tr><td><strong>Order ID</strong></td><td>${data.orderId}</td></tr>
@@ -111,7 +107,8 @@ export async function sendOpsAlert(data: {
       </table>
       <p>Payment was charged. Manually provision or refund.</p>
     `,
-  });
+    `OVNI AI Alerts <alerts@ovni.ai>`,
+  );
 }
 
 // ─── Send invoice email ──────────────────────────────────────────────────────
@@ -124,16 +121,10 @@ export async function sendInvoiceEmail(data: {
   totalCents:    number;
   periodLabel:   string;
 }): Promise<void> {
-  if (config.nodeEnv !== "production" || !config.resendApiKey) {
-    console.log(`\n[EMAIL -- invoice sent] To: ${data.to}, Invoice: ${data.invoiceNumber}\n`);
-    return;
-  }
-
-  await getResend().emails.send({
-    from:    `OVNI AI <${config.smtpFrom}>`,
-    to:      data.to,
-    subject: `Tu factura OVNI AI ${data.invoiceNumber} esta lista`,
-    html: `
+  await sendEmail(
+    data.to,
+    `Tu factura OVNI AI ${data.invoiceNumber} esta lista`,
+    `
       <h2>Factura ${data.invoiceNumber}</h2>
       <p>Hola ${data.contactName},</p>
       <p>Tu factura por el periodo ${data.periodLabel} esta lista.</p>
@@ -141,7 +132,7 @@ export async function sendInvoiceEmail(data: {
       <p>Puedes verla en tu portal de cliente.</p>
       <p>— Equipo OVNI AI</p>
     `,
-  });
+  );
 }
 
 // ─── HTML Templates ──────────────────────────────────────────────────────────
@@ -170,13 +161,13 @@ function welcomeTemplate(d: {
     <div style="background:#080810;border:1px solid rgba(127,119,221,0.25);border-radius:12px;padding:20px 24px">
       <div style="font-size:11px;font-weight:600;color:#475569;text-transform:uppercase;letter-spacing:1px;margin-bottom:12px">Tu API Key — guardala ahora</div>
       <div style="background:#000;border-radius:8px;padding:14px 16px;font-family:'Courier New',monospace;font-size:13px;color:#c4b5fd;word-break:break-all;letter-spacing:0.5px;margin-bottom:12px">${d.apiKey}</div>
-      <div style="font-size:12px;color:#ef4444;font-weight:500">Este es el unico momento en que se mostrara tu API key completa. Copiala y guardala en un lugar seguro ahora.</div>
+      <div style="font-size:12px;color:#ef4444;font-weight:500">Este es el unico momento en que se mostrara tu API key completa.</div>
     </div>
   </td></tr>
   <tr><td style="padding:0 40px 28px">
     <div style="font-size:13px;font-weight:600;color:#94a3b8;text-transform:uppercase;letter-spacing:1px;margin-bottom:12px">Primer request en 30 segundos</div>
     <div style="background:#080810;border-radius:8px;padding:16px;font-family:'Courier New',monospace;font-size:12px;color:#64748b;line-height:1.8">
-      <span style="color:#475569">curl</span> -X POST https://api.ovni.ai/v1/chat \\<br>
+      <span style="color:#475569">curl</span> -X POST https://new.ovni.ai/v1/chat \\<br>
       &nbsp;&nbsp;-H <span style="color:#9FE1CB">"Authorization: Bearer ${d.keyPrefix}..."</span> \\<br>
       &nbsp;&nbsp;-H <span style="color:#9FE1CB">"Content-Type: application/json"</span> \\<br>
       &nbsp;&nbsp;-d <span style="color:#9FE1CB">'{"messages":[{"role":"user","content":"Hola"}]}'</span>
@@ -194,7 +185,7 @@ function welcomeTemplate(d: {
     </div>
   </td></tr>
   <tr><td style="background:#080810;padding:20px 40px;text-align:center;border-top:1px solid rgba(255,255,255,0.05)">
-    <p style="margin:0;font-size:11px;color:#334155;line-height:1.8">OVNI AI · Operado por Ovnicom<br>Preguntas? soporte@ovni.ai</p>
+    <p style="margin:0;font-size:11px;color:#334155;line-height:1.8">OVNI AI &middot; Operado por Ovnicom<br>Preguntas? soporte@ovni.ai</p>
   </td></tr>
 </table>
 </td></tr>

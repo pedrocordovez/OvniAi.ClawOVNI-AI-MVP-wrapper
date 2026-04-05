@@ -9,8 +9,8 @@ export const config = {
   anthropicApiKey: process.env.ANTHROPIC_API_KEY ?? "",
   anthropicMargin: parseFloat(process.env.ANTHROPIC_MARGIN ?? "1.25"),
 
-  resendApiKey:   process.env.RESEND_API_KEY ?? "",
-  smtpFrom:       process.env.SMTP_FROM ?? "noreply@ovni.ai",
+  sesRegion:      process.env.AWS_SES_REGION ?? "us-east-1",
+  smtpFrom:       process.env.SMTP_FROM ?? "noreply@new.ovni.ai",
   opsAlertEmail:  process.env.OPS_ALERT_EMAIL ?? "ops@ovni.ai",
 
   stripeSecretKey:     process.env.STRIPE_SECRET_KEY ?? "",
