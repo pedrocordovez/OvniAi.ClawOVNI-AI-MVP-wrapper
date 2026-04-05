@@ -302,8 +302,7 @@ export default async function portalRoutes(app: FastifyInstance) {
     const tenant = request.tenant!;
 
     const result = await app.pg.query(
-      `SELECT name, slug, system_prompt, default_model, plan_id,
-              industry, anthropic_api_key
+      `SELECT name, slug, system_prompt, default_model, plan_id
        FROM tenants WHERE id = $1`,
       [tenant.tenantId],
     );
