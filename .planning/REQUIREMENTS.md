@@ -72,23 +72,23 @@
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| INFRA-01 | Phase 1 | Pending |
-| INFRA-02 | Phase 1 | Pending |
-| INFRA-03 | Phase 1 | Pending |
-| INFRA-04 | Phase 2 | Pending |
-| SEC-01 | Phase 2 | Pending |
-| SEC-02 | Phase 2 | Pending |
-| SEC-03 | Phase 2 | Pending |
-| SEC-04 | Phase 2 | Pending |
-| PAY-01 | Phase 2 | Pending |
-| PAY-02 | Phase 3 | Pending |
-| CHAN-01 | Phase 3 | Pending |
-| CHAN-02 | Phase 3 | Pending |
-| CHAN-03 | Phase 3 | Pending |
-| CHAN-04 | Phase 3 | Pending |
-| OPS-01 | Phase 2 | Pending |
-| OPS-02 | Phase 2 | Pending |
-| OPS-03 | Phase 3 | Pending |
+| INFRA-01 | Phase 1 — AWS Infrastructure + Deploy | Pending |
+| INFRA-02 | Phase 1 — AWS Infrastructure + Deploy | Pending |
+| INFRA-03 | Phase 1 — AWS Infrastructure + Deploy | Pending |
+| INFRA-04 | Phase 2 — Security Hardening + Payments | Pending |
+| SEC-01 | Phase 2 — Security Hardening + Payments | Pending |
+| SEC-02 | Phase 2 — Security Hardening + Payments | Pending |
+| SEC-03 | Phase 2 — Security Hardening + Payments | Pending |
+| SEC-04 | Phase 2 — Security Hardening + Payments | Pending |
+| PAY-01 | Phase 2 — Security Hardening + Payments | Pending |
+| PAY-02 | Phase 3 — Channels + E2E Testing | Pending |
+| CHAN-01 | Phase 3 — Channels + E2E Testing | Pending |
+| CHAN-02 | Phase 3 — Channels + E2E Testing | Pending |
+| CHAN-03 | Phase 3 — Channels + E2E Testing | Pending |
+| CHAN-04 | Phase 3 — Channels + E2E Testing | Pending |
+| OPS-01 | Phase 1 — AWS Infrastructure + Deploy | Pending |
+| OPS-02 | Phase 2 — Security Hardening + Payments | Pending |
+| OPS-03 | Phase 3 — Channels + E2E Testing | Pending |
 
 **Coverage:**
 - v1 requirements: 15 total
