@@ -14,46 +14,34 @@ export default function Layout({ children }: { children: ReactNode }) {
   const { logout } = useAuth();
 
   return (
-    <div className="flex h-screen bg-ovni-bg">
-      {/* Sidebar */}
-      <aside className="w-64 bg-ovni-surface border-r border-ovni-border flex flex-col">
-        <div className="p-6 border-b border-ovni-border">
-          <h1 className="text-xl font-bold">
-            OVNI <span className="text-ovni-accent">AI</span>
-          </h1>
-          <p className="text-xs text-ovni-muted mt-1">Staff Console</p>
+    <div className="min-h-screen bg-[#fafafa]">
+      {/* Top nav */}
+      <header className="bg-white border-b border-gray-200 sticky top-0 z-50">
+        <div className="max-w-7xl mx-auto px-6 flex items-center justify-between h-14">
+          <div className="flex items-center gap-8">
+            <div className="flex items-center gap-2">
+              <div className="w-7 h-7 bg-black rounded-[8px] flex items-center justify-center">
+                <span className="text-white text-[11px] font-black">O</span>
+              </div>
+              <span className="text-[15px] font-bold text-gray-900">OVNI AI</span>
+              <span className="text-[11px] font-medium text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full ml-1">Admin</span>
+            </div>
+            <nav className="flex gap-1">
+              {navItems.map(item => (
+                <Link key={item.path} to={item.path}
+                  className={`px-3 py-1.5 rounded-[8px] text-[13px] font-medium transition-all ${
+                    location.pathname === item.path || (item.path !== "/" && location.pathname.startsWith(item.path))
+                      ? "bg-gray-100 text-gray-900" : "text-gray-400 hover:text-gray-700 hover:bg-gray-50"
+                  }`}>{item.label}</Link>
+              ))}
+            </nav>
+          </div>
+          <button onClick={logout}
+            className="text-[13px] text-gray-400 hover:text-red-500 transition-colors">Salir</button>
         </div>
+      </header>
 
-        <nav className="flex-1 p-4 space-y-1">
-          {navItems.map(item => (
-            <Link
-              key={item.path}
-              to={item.path}
-              className={`block px-4 py-2.5 rounded-lg text-sm transition-colors ${
-                location.pathname === item.path
-                  ? "bg-ovni-accent/10 text-ovni-accent font-medium"
-                  : "text-ovni-muted hover:text-ovni-text hover:bg-white/5"
-              }`}
-            >
-              {item.label}
-            </Link>
-          ))}
-        </nav>
-
-        <div className="p-4 border-t border-ovni-border">
-          <button
-            onClick={logout}
-            className="w-full px-4 py-2 text-sm text-ovni-muted hover:text-red-400 transition-colors text-left"
-          >
-            Cerrar sesion
-          </button>
-        </div>
-      </aside>
-
-      {/* Main content */}
-      <main className="flex-1 overflow-y-auto p-8">
-        {children}
-      </main>
+      <main className="max-w-7xl mx-auto px-6 py-8">{children}</main>
     </div>
   );
 }
