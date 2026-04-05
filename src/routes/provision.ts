@@ -23,6 +23,15 @@ const ProvisionSchema = z.object({
   cvv:             z.string().min(3).max(4),
   channels:        z.record(z.unknown()).optional(),
   software_stack:  z.record(z.unknown()).optional(),
+  agent_config:    z.object({
+    use_cases:           z.array(z.string()).optional(),
+    tone:                z.string().optional(),
+    languages:           z.array(z.string()).optional(),
+    agent_name:          z.string().optional(),
+    company_description: z.string().optional(),
+    key_services:        z.string().optional(),
+    faqs:                z.string().optional(),
+  }).optional(),
 });
 
 export default async function provisionRoutes(app: FastifyInstance) {
@@ -138,6 +147,7 @@ export default async function provisionRoutes(app: FastifyInstance) {
       planId:        d.plan_id,
       channels:      d.channels,
       softwareStack: d.software_stack,
+      agentConfig:   d.agent_config as any,
     });
 
     let provisionResult;
@@ -193,6 +203,7 @@ export default async function provisionRoutes(app: FastifyInstance) {
       api_key:    provisionResult.apiKey,
       key_prefix: provisionResult.keyPrefix,
       plan:       plan.name,
+      agents:     agentProfile.agents.map(a => ({ name: a.name, role: a.role })),
       message:    "Cuenta activada! Guarda tu API key, no la podras ver de nuevo.",
     });
   });

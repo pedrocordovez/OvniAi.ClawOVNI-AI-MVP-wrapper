@@ -1,12 +1,29 @@
 /**
- * Agent Builder — generates a personalized system prompt and agent config
- * based on the client's onboarding answers (industry, software stack, channels).
+ * Agent Builder — generates personalized agent(s) based on onboarding answers.
+ * Determines if the client needs 1 general agent or multiple specialized sub-agents.
  */
 
-export interface AgentProfile {
+export interface AgentDefinition {
+  name:         string;
+  role:         string;
   systemPrompt: string;
-  agentName:    string;
   skills:       string[];
+}
+
+export interface AgentProfile {
+  agents:       AgentDefinition[];
+  systemPrompt: string;  // combined prompt for the main instance
+  skills:       string[];
+}
+
+export interface AgentConfig {
+  use_cases:           string[];
+  tone:                string;
+  languages:           string[];
+  agent_name:          string;
+  company_description: string;
+  key_services:        string;
+  faqs:                string;
 }
 
 interface OnboardingData {
@@ -16,110 +33,230 @@ interface OnboardingData {
   planId:         string;
   channels?:      Record<string, unknown>;
   softwareStack?: Record<string, unknown>;
+  agentConfig?:   AgentConfig;
 }
 
+// ─── Use case groupings for sub-agent determination ─────────────────────────
+
+const EXTERNAL_FACING = ["customer_support", "sales_assistant", "onboarding", "knowledge_base"];
+const INTERNAL_FACING = ["internal_helper", "data_analysis", "content_creation"];
+const SCHEDULING      = ["scheduling"];
+
+// ─── Industry context ───────────────────────────────────────────────────────
+
 const INDUSTRY_CONTEXT: Record<string, string> = {
-  tecnologia:   "empresa de tecnologia. Ayuda con soporte tecnico, documentacion, onboarding de clientes, y respuestas sobre productos de software.",
-  finanzas:     "empresa del sector financiero. Ayuda con consultas sobre servicios financieros, regulaciones, atencion al cliente, y analisis de datos.",
-  salud:        "empresa del sector salud. Ayuda con informacion de servicios medicos, citas, preguntas frecuentes de pacientes, y coordinacion interna. Nunca des diagnosticos medicos.",
-  educacion:    "institucion educativa. Ayuda con informacion academica, admisiones, soporte a estudiantes, y material de estudio.",
-  retail:       "empresa de retail/comercio. Ayuda con catalogo de productos, atencion al cliente, seguimiento de pedidos, y recomendaciones de compra.",
-  legal:        "firma legal. Ayuda con consultas generales de servicios legales, agendamiento de citas, y organizacion de documentos. Nunca des asesoramiento legal especifico.",
-  inmobiliaria: "empresa inmobiliaria. Ayuda con informacion de propiedades, agendamiento de visitas, consultas de precios, y seguimiento de clientes.",
-  marketing:    "agencia de marketing. Ayuda con brainstorming creativo, copywriting, analisis de campanas, y coordinacion de proyectos.",
-  logistica:    "empresa de logistica. Ayuda con tracking de envios, coordinacion de entregas, consultas de clientes, y optimizacion de rutas.",
-  otro:         "empresa. Ayuda con atencion al cliente, consultas internas, y tareas de productividad.",
+  tecnologia:   "empresa de tecnologia",
+  finanzas:     "empresa del sector financiero",
+  salud:        "empresa del sector salud",
+  educacion:    "institucion educativa",
+  retail:       "empresa de retail y comercio",
+  legal:        "firma legal",
+  inmobiliaria: "empresa inmobiliaria",
+  marketing:    "agencia de marketing",
+  logistica:    "empresa de logistica",
+  otro:         "empresa",
 };
 
-const SOFTWARE_DESCRIPTIONS: Record<string, string> = {
-  gmail:       "Gmail para correo electronico",
-  outlook:     "Microsoft Outlook para correo electronico",
-  quickbooks:  "QuickBooks para facturacion y contabilidad",
-  xero:        "Xero para facturacion y contabilidad",
-  freshbooks:  "FreshBooks para facturacion",
-  hubspot:     "HubSpot como CRM",
-  salesforce:  "Salesforce como CRM",
-  zoho:        "Zoho CRM",
-  bamboohr:    "BambooHR para recursos humanos",
-  gusto:       "Gusto para recursos humanos y nomina",
+const INDUSTRY_WARNINGS: Record<string, string> = {
+  salud: "ADVERTENCIA: Nunca des diagnosticos medicos, recetes medicamentos, ni interpretes resultados de laboratorio. Siempre recomienda consultar con un profesional de salud.",
+  legal: "ADVERTENCIA: Nunca des asesoramiento legal especifico. Siempre recomienda consultar con un abogado para casos particulares.",
+  finanzas: "ADVERTENCIA: Nunca des consejos de inversion especificos ni manejes informacion financiera sensible directamente.",
 };
 
-const CHANNEL_INSTRUCTIONS: Record<string, string> = {
-  whatsapp:  "Cuando respondas por WhatsApp, se conciso (max 300 palabras). Usa formato simple sin markdown complejo.",
-  telegram:  "Cuando respondas por Telegram, puedes usar formato Markdown. Se claro y directo.",
-  webchat:   "Cuando respondas por Web Chat, se amigable y conversacional. Puedes usar listas y formato.",
-  slack:     "Cuando respondas por Slack, usa formato de Slack (bold con *, listas con -).",
-  teams:     "Cuando respondas por Microsoft Teams, usa formato compatible.",
+const TONE_INSTRUCTIONS: Record<string, string> = {
+  profesional: "Usa un tono profesional y formal. Se preciso y respetuoso.",
+  amigable:    "Usa un tono amigable y cercano. Se accesible y calido, pero manteniendote profesional.",
+  tecnico:     "Usa un tono tecnico y detallado. Se preciso con terminologia y datos.",
+  casual:      "Usa un tono casual y conversacional. Se natural y relajado.",
 };
 
-export function buildAgentProfile(data: OnboardingData): AgentProfile {
+const SOFTWARE_NAMES: Record<string, string> = {
+  gmail: "Gmail", outlook: "Microsoft Outlook", quickbooks: "QuickBooks",
+  xero: "Xero", freshbooks: "FreshBooks", hubspot: "HubSpot",
+  salesforce: "Salesforce", zoho: "Zoho CRM", bamboohr: "BambooHR", gusto: "Gusto",
+};
+
+const USE_CASE_DESCRIPTIONS: Record<string, string> = {
+  customer_support: "Atencion al cliente: responde preguntas, resuelve problemas, gestiona quejas",
+  sales_assistant:  "Asistente de ventas: califica leads, responde consultas de productos, agenda demos",
+  internal_helper:  "Asistente interno: ayuda a empleados con procesos y documentacion",
+  scheduling:       "Agendamiento: coordina citas, reuniones, y disponibilidad",
+  content_creation: "Creacion de contenido: redacta emails, propuestas, posts, documentos",
+  data_analysis:    "Analisis de datos: interpreta reportes, resume informacion, genera insights",
+  onboarding:       "Onboarding: guia nuevos clientes, explica servicios, configura cuentas",
+  knowledge_base:   "Base de conocimiento: responde preguntas frecuentes usando info de la empresa",
+};
+
+// ─── Determine sub-agents ───────────────────────────────────────────────────
+
+function determineAgents(data: OnboardingData): { needsMultiple: boolean; groups: Array<{ name: string; role: string; useCases: string[] }> } {
+  const useCases = data.agentConfig?.use_cases ?? [];
+  if (useCases.length === 0) return { needsMultiple: false, groups: [] };
+
+  const hasExternal = useCases.some(uc => EXTERNAL_FACING.includes(uc));
+  const hasInternal = useCases.some(uc => INTERNAL_FACING.includes(uc));
+  const hasScheduling = useCases.some(uc => SCHEDULING.includes(uc));
+
+  const companyName = data.companyName;
+  const agentName = data.agentConfig?.agent_name || `Asistente de ${companyName}`;
+
+  // Single agent if only one group or very few use cases
+  if (useCases.length <= 2 || (!hasExternal && !hasInternal)) {
+    return { needsMultiple: false, groups: [{ name: agentName, role: "Agente general", useCases }] };
+  }
+
+  // Multiple agents if both external and internal use cases
+  const groups: Array<{ name: string; role: string; useCases: string[] }> = [];
+
+  if (hasExternal) {
+    const externalCases = useCases.filter(uc => EXTERNAL_FACING.includes(uc));
+    if (hasScheduling) externalCases.push(...useCases.filter(uc => SCHEDULING.includes(uc)));
+    groups.push({
+      name: `${agentName} — Clientes`,
+      role: "Atencion al cliente y ventas",
+      useCases: externalCases,
+    });
+  }
+
+  if (hasInternal) {
+    const internalCases = useCases.filter(uc => INTERNAL_FACING.includes(uc));
+    if (!hasExternal && hasScheduling) internalCases.push(...useCases.filter(uc => SCHEDULING.includes(uc)));
+    groups.push({
+      name: `${agentName} — Equipo`,
+      role: "Asistente interno del equipo",
+      useCases: internalCases,
+    });
+  }
+
+  return { needsMultiple: groups.length > 1, groups };
+}
+
+// ─── Build system prompt for an agent ───────────────────────────────────────
+
+function buildPromptForAgent(
+  data: OnboardingData,
+  agentName: string,
+  role: string,
+  useCases: string[],
+): string {
+  const cfg = data.agentConfig;
   const industry = data.industry.toLowerCase();
-  const industryContext = INDUSTRY_CONTEXT[industry] ?? INDUSTRY_CONTEXT.otro;
+  const industryLabel = INDUSTRY_CONTEXT[industry] ?? INDUSTRY_CONTEXT.otro;
+  const sections: string[] = [];
 
-  // Build software context
+  // Identity
+  sections.push(`Eres "${agentName}", el asistente de inteligencia artificial de ${data.companyName}, una ${industryLabel}.`);
+  sections.push(`Tu rol principal: ${role}.`);
+
+  // Company description
+  if (cfg?.company_description) {
+    sections.push(`\nSobre la empresa: ${cfg.company_description}`);
+  }
+
+  // Services/products
+  if (cfg?.key_services) {
+    sections.push(`\nServicios y productos principales: ${cfg.key_services}`);
+  }
+
+  // FAQs
+  if (cfg?.faqs) {
+    sections.push(`\nPreguntas frecuentes y respuestas:\n${cfg.faqs}`);
+  }
+
+  // Use cases
+  if (useCases.length > 0) {
+    sections.push("\nTus capacidades principales:");
+    for (const uc of useCases) {
+      const desc = USE_CASE_DESCRIPTIONS[uc];
+      if (desc) sections.push(`- ${desc}`);
+    }
+  }
+
+  // Tone
+  const tone = TONE_INSTRUCTIONS[cfg?.tone ?? "profesional"] ?? TONE_INSTRUCTIONS.profesional;
+  sections.push(`\nEstilo de comunicacion: ${tone}`);
+
+  // Languages
+  const langs = cfg?.languages ?? ["es"];
+  if (langs.length === 1 && langs[0] === "es") {
+    sections.push("Responde siempre en espanol a menos que el usuario te escriba en otro idioma.");
+  } else if (langs.includes("es") && langs.includes("en")) {
+    sections.push("Eres bilingue. Responde en el idioma en que te escriban (espanol o ingles).");
+  } else {
+    sections.push(`Idiomas soportados: ${langs.join(", ")}. Responde en el idioma del usuario.`);
+  }
+
+  // Software stack
   const softwareList: string[] = [];
-  const skills: string[] = [];
   if (data.softwareStack) {
-    for (const [category, tool] of Object.entries(data.softwareStack)) {
-      if (!tool || typeof tool !== "string") continue;
-      const desc = SOFTWARE_DESCRIPTIONS[tool];
-      if (desc) {
-        softwareList.push(desc);
-        skills.push(tool);
+    for (const [, tool] of Object.entries(data.softwareStack)) {
+      if (tool && typeof tool === "string" && SOFTWARE_NAMES[tool]) {
+        softwareList.push(SOFTWARE_NAMES[tool]);
       }
     }
   }
-
-  // Build channel instructions
-  const channelParts: string[] = [];
-  if (data.channels) {
-    for (const [ch, active] of Object.entries(data.channels)) {
-      if (!active) continue;
-      const instruction = CHANNEL_INSTRUCTIONS[ch];
-      if (instruction) channelParts.push(instruction);
-    }
+  if (softwareList.length > 0) {
+    sections.push(`\nLa empresa usa: ${softwareList.join(", ")}. Referencia estas herramientas cuando sea relevante.`);
   }
 
-  // Agent name
-  const agentName = `Asistente IA de ${data.companyName}`;
-
-  // Build system prompt
-  const sections: string[] = [];
-
-  sections.push(`Eres el asistente de inteligencia artificial de ${data.companyName}, una ${industryContext}`);
-  sections.push(`Tu nombre es "${agentName}". Responde siempre en espanol a menos que el usuario te escriba en otro idioma.`);
-
+  // Rules
   sections.push("\nReglas importantes:");
   sections.push("- Se profesional, amable y eficiente.");
   sections.push("- Si no sabes algo, dilo honestamente. No inventes informacion.");
   sections.push("- Protege la informacion confidencial de la empresa y sus clientes.");
   sections.push("- Si te piden algo fuera de tu alcance, sugiere contactar al equipo humano.");
 
-  if (softwareList.length > 0) {
-    sections.push(`\nLa empresa usa las siguientes herramientas: ${softwareList.join(", ")}. Cuando sea relevante, referencia estas herramientas en tus respuestas y sugiere como usarlas para resolver problemas.`);
-  }
+  // Industry warnings
+  const warning = INDUSTRY_WARNINGS[industry];
+  if (warning) sections.push(`\n${warning}`);
 
-  if (channelParts.length > 0) {
-    sections.push("\nInstrucciones por canal de comunicacion:");
-    for (const part of channelParts) {
-      sections.push(`- ${part}`);
+  return sections.join("\n");
+}
+
+// ─── Public API ─────────────────────────────────────────────────────────────
+
+export function buildAgentProfile(data: OnboardingData): AgentProfile {
+  const { needsMultiple, groups } = determineAgents(data);
+  const skills: string[] = [];
+
+  if (data.softwareStack) {
+    for (const [, tool] of Object.entries(data.softwareStack)) {
+      if (tool && typeof tool === "string") skills.push(tool);
     }
   }
 
-  // Industry-specific additions
-  if (industry === "salud") {
-    sections.push("\nADVERTENCIA: Nunca des diagnosticos medicos, recetes medicamentos, ni interpretes resultados de laboratorio. Siempre recomienda consultar con un profesional de salud.");
-  }
-  if (industry === "legal") {
-    sections.push("\nADVERTENCIA: Nunca des asesoramiento legal especifico. Siempre recomienda consultar con un abogado para casos particulares.");
-  }
-  if (industry === "finanzas") {
-    sections.push("\nADVERTENCIA: Nunca des consejos de inversion especificos ni manejes informacion financiera sensible directamente.");
+  if (!needsMultiple || groups.length <= 1) {
+    // Single agent
+    const group = groups[0] ?? {
+      name: data.agentConfig?.agent_name || `Asistente de ${data.companyName}`,
+      role: "Agente general",
+      useCases: data.agentConfig?.use_cases ?? [],
+    };
+    const systemPrompt = buildPromptForAgent(data, group.name, group.role, group.useCases);
+
+    return {
+      agents: [{ name: group.name, role: group.role, systemPrompt, skills }],
+      systemPrompt,
+      skills,
+    };
   }
 
-  return {
-    systemPrompt: sections.join("\n"),
-    agentName,
+  // Multiple sub-agents — build a combined prompt with routing instructions
+  const agents: AgentDefinition[] = groups.map(g => ({
+    name:         g.name,
+    role:         g.role,
+    systemPrompt: buildPromptForAgent(data, g.name, g.role, g.useCases),
     skills,
-  };
+  }));
+
+  // The main system prompt includes routing logic
+  const agentList = agents.map((a, i) => `${i + 1}. "${a.name}" — ${a.role}`).join("\n");
+  const combinedPrompt = `Eres el sistema de agentes AI de ${data.companyName}. Tienes ${agents.length} agentes especializados:\n\n${agentList}\n\n` +
+    `Cuando recibes un mensaje, determina cual agente es el mas apropiado para responder segun el contexto:\n` +
+    `- Si el mensaje es de un cliente externo (preguntas sobre servicios, soporte, ventas) → usa el agente de Clientes\n` +
+    `- Si el mensaje es de un empleado interno (procesos, documentacion, analisis) → usa el agente de Equipo\n\n` +
+    `Responde siempre como el agente apropiado, usando su nombre y tono.\n\n` +
+    `--- AGENTE 1 ---\n${agents[0].systemPrompt}\n\n--- AGENTE 2 ---\n${agents[1]?.systemPrompt ?? ""}`;
+
+  return { agents, systemPrompt: combinedPrompt, skills };
 }
