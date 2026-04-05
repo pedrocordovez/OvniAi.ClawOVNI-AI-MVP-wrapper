@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 
 interface Plan {
   id: string; name: string; monthly_fee_cents: number;
@@ -64,11 +64,35 @@ export default function App() {
   });
   const [result, setResult] = useState<any>(null);
   const [error, setError] = useState("");
+  const [stripePublishableKey, setStripePublishableKey] = useState("");
+  const stripeRef = useRef<any>(null);
+  const cardElementRef = useRef<any>(null);
+  const cardDivRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     fetch("/api/provision/plans").then(r => r.json())
-      .then(d => { setPlans(d.plans); setActivationFee(d.activation_fee_cents); }).catch(() => {});
+      .then(d => {
+        setPlans(d.plans);
+        setActivationFee(d.activation_fee_cents);
+        setStripePublishableKey(d.stripe_publishable_key ?? "");
+      }).catch(() => {});
   }, []);
+
+  // Mount Stripe CardElement when payment step is reached
+  useEffect(() => {
+    if (step !== 10 || !stripePublishableKey) return;
+    const w = window as any;
+    if (!w.Stripe || cardElementRef.current) return;
+    const stripe = w.Stripe(stripePublishableKey);
+    stripeRef.current = stripe;
+    const elements = stripe.elements();
+    const card = elements.create("card", {
+      style: { base: { fontSize: "15px", color: "#111827", "::placeholder": { color: "#d1d5db" } } },
+      hidePostalCode: true,
+    });
+    if (cardDivRef.current) { card.mount(cardDivRef.current); cardElementRef.current = card; }
+    return () => { card.unmount(); cardElementRef.current = null; stripeRef.current = null; };
+  }, [step, stripePublishableKey]);
 
   const set = (k: keyof FormData, v: string) => setForm({ ...form, [k]: v });
   const toggle = (f: "channels"|"use_cases", id: string) => setForm({ ...form, [f]: { ...form[f], [id]: !form[f][id] } });
@@ -85,25 +109,52 @@ export default function App() {
   const submit = async () => {
     setStep(11); setError("");
     try {
+      let paymentIntentId: string | undefined;
+
+      if (stripePublishableKey && stripeRef.current && cardElementRef.current) {
+        // Stripe Elements flow: create PaymentIntent then confirm client-side
+        const piRes = await fetch("/api/provision/payment-intent", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ plan_id: form.plan_id, contact_email: form.contact_email }),
+        });
+        const piData = await piRes.json();
+        if (piData.stripe_mode && piData.client_secret) {
+          const { paymentIntent, error: stripeError } = await stripeRef.current.confirmCardPayment(
+            piData.client_secret,
+            { payment_method: { card: cardElementRef.current, billing_details: { name: form.card_name } } },
+          );
+          if (stripeError) throw new Error(stripeError.message);
+          if (paymentIntent?.status !== "succeeded") throw new Error("Pago no completado");
+          paymentIntentId = paymentIntent.id;
+        }
+      }
+
+      const channels = Object.fromEntries(Object.entries(form.channels).filter(([,v]) => v).map(([k]) => [k, { enabled: true }]));
+      const software_stack = Object.fromEntries(Object.entries({ email: form.email, billing: form.billing, crm: form.crm, hr: form.hr }).filter(([,v]) => v));
+      const agent_config = { use_cases: ucs, tone: form.tone, languages: form.languages,
+        agent_name: form.agent_name || `Asistente de ${form.company_name}`,
+        company_description: form.company_description, key_services: form.key_services, faqs: form.faqs };
+
       const res = await fetch("/api/provision", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           idempotency_key: `wiz_${Date.now()}_${Math.random().toString(36).slice(2)}`,
           company_name: form.company_name, industry: form.industry,
           contact_name: form.contact_name, contact_email: form.contact_email,
-          plan_id: form.plan_id, card_number: form.card_number,
-          card_name: form.card_name, expiry: form.expiry, cvv: form.cvv,
-          channels: Object.fromEntries(Object.entries(form.channels).filter(([,v]) => v).map(([k]) => [k, { enabled: true }])),
-          software_stack: Object.fromEntries(Object.entries({ email: form.email, billing: form.billing, crm: form.crm, hr: form.hr }).filter(([,v]) => v)),
-          agent_config: { use_cases: ucs, tone: form.tone, languages: form.languages,
-            agent_name: form.agent_name || `Asistente de ${form.company_name}`,
-            company_description: form.company_description, key_services: form.key_services, faqs: form.faqs },
+          plan_id: form.plan_id,
+          ...(paymentIntentId
+            ? { payment_intent_id: paymentIntentId }
+            : { card_number: form.card_number, card_name: form.card_name, expiry: form.expiry, cvv: form.cvv }),
+          channels, software_stack, agent_config,
         }),
       });
       const data = await res.json();
       if (res.ok) { setResult(data); setStep(12); }
       else { setError(data.message ?? "Error"); setStep(10); }
-    } catch { setError("Error de conexion."); setStep(10); }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Error de pago. Intenta de nuevo.");
+      setStep(10);
+    }
   };
 
   // ── Design System ──────────────────────────────────────
@@ -337,14 +388,24 @@ export default function App() {
           {step === 10 && (<><H>Pago</H>
             {error && <div className="bg-red-50 border border-red-200 rounded-[10px] px-4 py-3 text-[13px] text-red-600 mb-4">{error}</div>}
             <div className="space-y-4">
-              <div><Label>Numero de tarjeta</Label><Input placeholder="4111 1111 1111 1111" value={form.card_number} onChange={(e: any) => set("card_number", e.target.value.replace(/\D/g, "").slice(0, 16))} /></div>
               <div><Label>Nombre en la tarjeta</Label><Input placeholder="Como aparece en la tarjeta" value={form.card_name} onChange={(e: any) => set("card_name", e.target.value)} /></div>
-              <div className="grid grid-cols-2 gap-3">
-                <div><Label>Vencimiento</Label><Input placeholder="MM/YY" value={form.expiry} onChange={(e: any) => { let v = e.target.value.replace(/\D/g, "").slice(0, 4); if (v.length >= 3) v = v.slice(0, 2) + "/" + v.slice(2); set("expiry", v); }} /></div>
-                <div><Label>CVV</Label><Input type="password" placeholder="123" value={form.cvv} onChange={(e: any) => set("cvv", e.target.value.replace(/\D/g, "").slice(0, 4))} /></div>
-              </div>
+              {stripePublishableKey ? (
+                <div>
+                  <Label>Datos de tarjeta</Label>
+                  <div ref={cardDivRef} className="w-full bg-white border border-gray-200 rounded-[10px] px-4 py-3.5 min-h-[50px]" />
+                  <p className="text-[11px] text-gray-400 mt-1.5">🔒 Pago seguro — tus datos van directamente a Stripe, nunca pasan por nuestros servidores.</p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  <div><Label>Numero de tarjeta</Label><Input placeholder="4111 1111 1111 1111" value={form.card_number} onChange={(e: any) => set("card_number", e.target.value.replace(/\D/g, "").slice(0, 16))} /></div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div><Label>Vencimiento</Label><Input placeholder="MM/YY" value={form.expiry} onChange={(e: any) => { let v = e.target.value.replace(/\D/g, "").slice(0, 4); if (v.length >= 3) v = v.slice(0, 2) + "/" + v.slice(2); set("expiry", v); }} /></div>
+                    <div><Label>CVV</Label><Input type="password" placeholder="123" value={form.cvv} onChange={(e: any) => set("cvv", e.target.value.replace(/\D/g, "").slice(0, 4))} /></div>
+                  </div>
+                </div>
+              )}
             </div>
-            <Nav canNext={!!form.card_number && !!form.card_name && !!form.expiry && !!form.cvv} onNext={submit} nextLabel={`Pagar ${fmt(total)}`} /></>)}
+            <Nav canNext={stripePublishableKey ? !!form.card_name : !!form.card_number && !!form.card_name && !!form.expiry && !!form.cvv} onNext={submit} nextLabel={`Pagar ${fmt(total)}`} /></>)}
 
           {/* 11: Processing */}
           {step === 11 && (

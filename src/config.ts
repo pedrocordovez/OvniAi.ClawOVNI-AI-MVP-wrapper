@@ -13,8 +13,9 @@ export const config = {
   smtpFrom:       process.env.SMTP_FROM ?? "noreply@new.ovni.ai",
   opsAlertEmail:  process.env.OPS_ALERT_EMAIL ?? "ops@ovni.ai",
 
-  stripeSecretKey:     process.env.STRIPE_SECRET_KEY ?? "",
-  stripeWebhookSecret: process.env.STRIPE_WEBHOOK_SECRET ?? "",
+  stripeSecretKey:       process.env.STRIPE_SECRET_KEY ?? "",
+  stripePublishableKey:  process.env.STRIPE_PUBLISHABLE_KEY ?? "",
+  stripeWebhookSecret:   process.env.STRIPE_WEBHOOK_SECRET ?? "",
 
   twilioAccountSid:    process.env.TWILIO_ACCOUNT_SID ?? "",
   twilioAuthToken:     process.env.TWILIO_AUTH_TOKEN ?? "",

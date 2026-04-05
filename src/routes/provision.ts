@@ -1,7 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { config } from "../config.js";
-import { processPayment } from "../services/payment.js";
+import { processPayment, verifyPaymentIntent } from "../services/payment.js";
 import { provisionTenant } from "../services/provisioning.js";
 import {
   sendWelcomeEmail,
@@ -9,21 +9,29 @@ import {
   sendOpsAlert,
 } from "../services/email.js";
 import { buildAgentProfile } from "../services/agentBuilder.js";
+import { metrics } from "../services/cloudwatch.js";
+import { createPaymentIntent } from "../services/payment.js";
+import type { PlanId } from "../config.js";
 
+// Accepts either Stripe Elements payment_intent_id (production) or
+// raw card fields (mock/dev when STRIPE_SECRET_KEY is not set).
 const ProvisionSchema = z.object({
-  idempotency_key: z.string().min(8).max(128),
-  company_name:    z.string().min(1).max(100),
-  industry:        z.string().min(1).max(50),
-  contact_name:    z.string().min(1).max(100),
-  contact_email:   z.string().email(),
-  plan_id:         z.enum(["starter", "pro", "enterprise"]),
-  card_number:     z.string().min(13).max(19),
-  card_name:       z.string().min(1),
-  expiry:          z.string().regex(/^\d{2}\/\d{2}$/, "Format MM/YY"),
-  cvv:             z.string().min(3).max(4),
-  channels:        z.record(z.unknown()).optional(),
-  software_stack:  z.record(z.unknown()).optional(),
-  agent_config:    z.object({
+  idempotency_key:   z.string().min(8).max(128),
+  company_name:      z.string().min(1).max(100),
+  industry:          z.string().min(1).max(50),
+  contact_name:      z.string().min(1).max(100),
+  contact_email:     z.string().email(),
+  plan_id:           z.enum(["starter", "pro", "enterprise"]),
+  // Stripe Elements (production)
+  payment_intent_id: z.string().optional(),
+  // Raw card fields (dev/mock only — never touch our server in production)
+  card_number:       z.string().min(13).max(19).optional(),
+  card_name:         z.string().optional(),
+  expiry:            z.string().regex(/^\d{2}\/\d{2}$/, "Format MM/YY").optional(),
+  cvv:               z.string().min(3).max(4).optional(),
+  channels:          z.record(z.unknown()).optional(),
+  software_stack:    z.record(z.unknown()).optional(),
+  agent_config:      z.object({
     use_cases:           z.array(z.string()).optional(),
     tone:                z.string().optional(),
     languages:           z.array(z.string()).optional(),
@@ -32,7 +40,10 @@ const ProvisionSchema = z.object({
     key_services:        z.string().optional(),
     faqs:                z.string().optional(),
   }).optional(),
-});
+}).refine(
+  d => d.payment_intent_id || d.card_number,
+  { message: "Se requiere payment_intent_id (Stripe Elements) o datos de tarjeta (dev)" },
+);
 
 export default async function provisionRoutes(app: FastifyInstance) {
 
@@ -102,16 +113,20 @@ export default async function provisionRoutes(app: FastifyInstance) {
     const orderId: string = orderResult.rows[0].id;
 
     // 5. Process payment
-    const paymentResult = await processPayment({
-      amountCents:  totalCents,
-      currency:     "usd",
-      description:  `OVNI AI — Plan ${plan.name} + Activacion (${d.company_name})`,
-      email:        d.contact_email,
-      cardNumber:   d.card_number,
-      cardName:     d.card_name,
-      expiry:       d.expiry,
-      cvv:          d.cvv,
-    });
+    // Production: verify PaymentIntent confirmed by Stripe Elements on the client.
+    // Dev/mock: charge raw card fields via server-side Stripe call (no Stripe key = mock).
+    const paymentResult = d.payment_intent_id
+      ? await verifyPaymentIntent(d.payment_intent_id)
+      : await processPayment({
+          amountCents:  totalCents,
+          currency:     "usd",
+          description:  `OVNI AI — Plan ${plan.name} + Activacion (${d.company_name})`,
+          email:        d.contact_email,
+          cardNumber:   d.card_number ?? "",
+          cardName:     d.card_name ?? "",
+          expiry:       d.expiry ?? "",
+          cvv:          d.cvv ?? "",
+        });
 
     if (!paymentResult.success) {
       await app.pg.query(
@@ -195,7 +210,9 @@ export default async function provisionRoutes(app: FastifyInstance) {
       monthlyFee:   plan.monthlyFeeCents,
     }).catch(err => app.log.warn({ err }, "Failed to send welcome email"));
 
-    // 8. Return success
+    // 8. CloudWatch metric + return success
+    metrics.provisioningSuccess(d.plan_id).catch(() => {});
+
     return reply.status(201).send({
       status:     "provisioned",
       order_id:   orderId,
@@ -208,8 +225,38 @@ export default async function provisionRoutes(app: FastifyInstance) {
     });
   });
 
+  // ── POST /api/provision/payment-intent ──────────────────────────────────────
+  // Creates a Stripe PaymentIntent for the wizard to confirm via Stripe Elements.
+  // The card never touches our server — only the resulting intent ID does.
+  app.post("/api/provision/payment-intent", async (request, reply) => {
+    const body = request.body as { plan_id?: string; contact_email?: string };
+    const planId = body?.plan_id as PlanId | undefined;
+
+    if (!planId || !config.plans[planId]) {
+      return reply.status(400).send({ error: "plan_id invalido" });
+    }
+
+    const plan = config.plans[planId];
+    const totalCents = config.activationFeeCents + plan.monthlyFeeCents;
+
+    const { clientSecret, stripeMode } = await createPaymentIntent(
+      totalCents,
+      "usd",
+      `OVNI AI — Plan ${plan.name} + Activacion`,
+      body.contact_email,
+    );
+
+    return {
+      client_secret: clientSecret,
+      amount:        totalCents,
+      stripe_mode:   stripeMode,
+    };
+  });
+
+  // ── GET /api/provision/plans ────────────────────────────────────────────────
   app.get("/api/provision/plans", async () => ({
-    activation_fee_cents: config.activationFeeCents,
+    activation_fee_cents:  config.activationFeeCents,
+    stripe_publishable_key: config.stripePublishableKey || null,
     plans: Object.values(config.plans).map(p => ({
       id:                p.id,
       name:              p.name,

@@ -14,5 +14,19 @@ module.exports = {
       merge_logs: true,
       log_date_format: "YYYY-MM-DD HH:mm:ss Z",
     },
+    {
+      // Database backup — runs every 6 hours
+      name: "ovni-ai-backup",
+      script: "scripts/backup.sh",
+      cwd: "/opt/ovni-ai",
+      interpreter: "bash",
+      cron_restart: "0 */6 * * *",
+      autorestart: false,
+      watch: false,
+      error_file: "/opt/ovni-ai/logs/backup-error.log",
+      out_file: "/opt/ovni-ai/logs/backup.log",
+      merge_logs: true,
+      log_date_format: "YYYY-MM-DD HH:mm:ss Z",
+    },
   ],
 };

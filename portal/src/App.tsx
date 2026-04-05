@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { BrowserRouter, Routes, Route, Link, useLocation, Navigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 
@@ -173,9 +173,117 @@ function Usage() {
   );
 }
 
+// ── Credit Recharge Form ─────────────────────────────────
+const RECHARGE_AMOUNTS = [1000, 2500, 5000, 10000, 25000];
+
+function RechargeForm({ onSuccess }: { onSuccess: () => void }) {
+  const [amount, setAmount] = useState(5000);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [stripeMode, setStripeMode] = useState(false);
+  const stripeRef = useRef<any>(null);
+  const cardElementRef = useRef<any>(null);
+  const cardDivRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    api<any>("/portal/credit/stripe-config").then(cfg => {
+      if (!cfg.stripe_publishable_key) return;
+      const w = window as any;
+      if (!w.Stripe) return;
+      const stripe = w.Stripe(cfg.stripe_publishable_key);
+      stripeRef.current = stripe;
+      const elements = stripe.elements();
+      const card = elements.create("card", {
+        style: { base: { fontSize: "15px", color: "#111827", "::placeholder": { color: "#d1d5db" } } },
+        hidePostalCode: true,
+      });
+      if (cardDivRef.current) { card.mount(cardDivRef.current); cardElementRef.current = card; setStripeMode(true); }
+    }).catch(() => {});
+    return () => { cardElementRef.current?.unmount(); };
+  }, []);
+
+  const handleRecharge = async () => {
+    setLoading(true); setError("");
+    try {
+      let paymentIntentId: string | undefined;
+      if (stripeMode && stripeRef.current && cardElementRef.current) {
+        const piRes = await fetch("/portal/credit/payment-intent", {
+          method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${getKey()}` },
+          body: JSON.stringify({ amount_cents: amount }),
+        });
+        const piData = await piRes.json();
+        if (piData.stripe_mode && piData.client_secret) {
+          const { paymentIntent, error: stripeError } = await stripeRef.current.confirmCardPayment(
+            piData.client_secret, { payment_method: { card: cardElementRef.current } },
+          );
+          if (stripeError) throw new Error(stripeError.message);
+          paymentIntentId = paymentIntent?.id;
+        }
+      }
+      const res = await fetch("/portal/credit/recharge", {
+        method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${getKey()}` },
+        body: JSON.stringify({ payment_intent_id: paymentIntentId, amount_cents: amount }),
+      });
+      const data = await res.json();
+      if (res.ok) { cardElementRef.current?.clear(); onSuccess(); }
+      else setError(data.error ?? "Error al recargar");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Error de pago");
+    } finally { setLoading(false); }
+  };
+
+  return (
+    <div className="bg-white rounded-[14px] border border-gray-200 p-6">
+      <h3 className="text-[14px] font-bold text-gray-900 mb-4">Recargar credito</h3>
+      <div className="flex gap-2 mb-4 flex-wrap">
+        {RECHARGE_AMOUNTS.map(a => (
+          <button key={a} onClick={() => setAmount(a)}
+            className={`px-4 py-2 rounded-[8px] text-[13px] font-semibold border transition-all ${
+              amount === a ? "bg-black text-white border-black" : "bg-white text-gray-600 border-gray-200 hover:border-gray-400"
+            }`}>${(a / 100).toFixed(0)}</button>
+        ))}
+      </div>
+      {stripeMode ? (
+        <div className="mb-4">
+          <div ref={cardDivRef} className="w-full bg-white border border-gray-200 rounded-[10px] px-4 py-3.5 mb-1" />
+          <p className="text-[11px] text-gray-400">🔒 Pago seguro con Stripe</p>
+        </div>
+      ) : (
+        <div className="bg-gray-50 rounded-[10px] p-3 mb-4">
+          <p className="text-[12px] text-gray-400 text-center">Modo demo — recarga sin pago real</p>
+        </div>
+      )}
+      {error && <p className="text-red-500 text-[13px] mb-3">{error}</p>}
+      <button onClick={handleRecharge} disabled={loading}
+        className="w-full bg-black text-white py-3 rounded-[10px] text-[14px] font-semibold hover:bg-gray-800 disabled:bg-gray-200 disabled:text-gray-400 transition-all">
+        {loading ? "Procesando..." : `Recargar $${(amount / 100).toFixed(0)}`}
+      </button>
+    </div>
+  );
+}
+
 // ── Credit ───────────────────────────────────────────────
 function Credit() {
-  const { data } = useQuery({ queryKey: ["portal-credit"], queryFn: () => api<any>("/portal/credit") });
+  const { data, refetch } = useQuery({ queryKey: ["portal-credit"], queryFn: () => api<any>("/portal/credit") });
+  const [autoRecharge, setAutoRecharge] = useState<boolean | null>(null);
+  const [savingAuto, setSavingAuto] = useState(false);
+
+  useEffect(() => {
+    if (data?.credit) setAutoRecharge(data.credit.auto_recharge);
+  }, [data]);
+
+  const toggleAutoRecharge = async (enabled: boolean) => {
+    setSavingAuto(true);
+    try {
+      await fetch("/portal/credit/auto-recharge", {
+        method: "PATCH", headers: { "Content-Type": "application/json", Authorization: `Bearer ${getKey()}` },
+        body: JSON.stringify({ enabled }),
+      });
+      setAutoRecharge(enabled);
+      refetch();
+    } finally { setSavingAuto(false); }
+  };
+
   if (!data) return <Loading />;
 
   const { credit, transactions } = data;
@@ -191,6 +299,30 @@ function Credit() {
           sub={credit.auto_recharge ? `${fmtUSD(credit.recharge_amount_cents)} cuando < ${fmtUSD(credit.recharge_threshold_cents)}` : "Riesgo de suspension"} />
         <Stat label="Estado" value={credit.suspended ? "Suspendido" : "Activo"}
           color={credit.suspended ? "text-red-600" : "text-emerald-600"} />
+      </div>
+
+      <RechargeForm onSuccess={() => refetch()} />
+
+      {/* Auto-recharge toggle */}
+      <div className="bg-white rounded-[14px] border border-gray-200 p-6">
+        <div className="flex items-center justify-between">
+          <div>
+            <h3 className="text-[14px] font-bold text-gray-900">Auto-recarga</h3>
+            <p className="text-[12px] text-gray-400 mt-0.5">
+              {autoRecharge
+                ? `Recarga $${(credit.recharge_amount_cents / 100).toFixed(0)} cuando el balance baje de $${(credit.recharge_threshold_cents / 100).toFixed(0)}`
+                : "Activa para nunca quedarte sin credito"}
+            </p>
+          </div>
+          <button onClick={() => toggleAutoRecharge(!autoRecharge)} disabled={savingAuto}
+            className={`relative w-11 h-6 rounded-full transition-all duration-200 ${
+              autoRecharge ? "bg-black" : "bg-gray-200"
+            } disabled:opacity-50`}>
+            <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform duration-200 ${
+              autoRecharge ? "translate-x-5" : "translate-x-0"
+            }`} />
+          </button>
+        </div>
       </div>
 
       <div className="bg-white rounded-[14px] border border-gray-200 overflow-hidden">

@@ -18,6 +18,60 @@ export interface PaymentResult {
   error?:     string;
 }
 
+// ─── Verify an existing PaymentIntent (Stripe Elements flow) ─────────────────
+// Used when the frontend confirms payment via Stripe.js and sends us the intent ID.
+
+export async function verifyPaymentIntent(paymentIntentId: string): Promise<PaymentResult> {
+  if (!config.stripeSecretKey) {
+    // Mock mode — trust the intent ID
+    return { success: true, reference: paymentIntentId };
+  }
+
+  try {
+    const { default: Stripe } = await import("stripe");
+    const stripe = new Stripe(config.stripeSecretKey);
+    const intent = await stripe.paymentIntents.retrieve(paymentIntentId);
+
+    if (intent.status === "succeeded") {
+      return { success: true, reference: paymentIntentId };
+    }
+
+    return {
+      success: false,
+      error: `Pago en estado: ${intent.status}. Contacta soporte si el cargo ya fue aplicado.`,
+    };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Error verificando pago";
+    return { success: false, error: message };
+  }
+}
+
+// ─── Create PaymentIntent for Stripe Elements flow ────────────────────────────
+
+export async function createPaymentIntent(
+  amountCents: number,
+  currency: string,
+  description: string,
+  receiptEmail?: string,
+): Promise<{ clientSecret: string | null; stripeMode: boolean }> {
+  if (!config.stripeSecretKey) {
+    return { clientSecret: null, stripeMode: false };
+  }
+
+  const { default: Stripe } = await import("stripe");
+  const stripe = new Stripe(config.stripeSecretKey);
+
+  const intent = await stripe.paymentIntents.create({
+    amount: amountCents,
+    currency,
+    description,
+    receipt_email: receiptEmail,
+    automatic_payment_methods: { enabled: true, allow_redirects: "never" },
+  });
+
+  return { clientSecret: intent.client_secret!, stripeMode: true };
+}
+
 export async function processPayment(req: PaymentRequest): Promise<PaymentResult> {
   // ── Stripe (if configured) ──────────────────────────────────
   if (config.stripeSecretKey) {

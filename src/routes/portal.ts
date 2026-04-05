@@ -1,7 +1,9 @@
 import type { FastifyInstance } from "fastify";
 import { tenantAuth } from "../middleware/auth.js";
 import { generateInvoicePdf } from "../services/pdfGenerator.js";
-import { getCreditStatus, getCreditHistory } from "../services/creditManager.js";
+import { getCreditStatus, getCreditHistory, addCredit } from "../services/creditManager.js";
+import { createPaymentIntent, verifyPaymentIntent } from "../services/payment.js";
+import { config } from "../config.js";
 
 export default async function portalRoutes(app: FastifyInstance) {
 
@@ -166,6 +168,104 @@ export default async function portalRoutes(app: FastifyInstance) {
     ]);
 
     return { credit: status, transactions: history };
+  });
+
+  // ── Credit Recharge ─────────────────────────────────────
+
+  // GET /portal/credit/stripe-config — publishable key for Stripe Elements
+  app.get("/portal/credit/stripe-config", async () => ({
+    stripe_publishable_key: config.stripePublishableKey || null,
+    stripe_mode: !!config.stripePublishableKey,
+  }));
+
+  // POST /portal/credit/payment-intent — create Stripe PaymentIntent for manual recharge
+  app.post("/portal/credit/payment-intent", async (request, reply) => {
+    const tenant = request.tenant!;
+    const body = request.body as { amount_cents?: number };
+
+    const VALID_AMOUNTS = [1000, 2500, 5000, 10000, 25000]; // $10 $25 $50 $100 $250
+    if (!body.amount_cents || !VALID_AMOUNTS.includes(body.amount_cents)) {
+      return reply.status(400).send({ error: "Monto invalido. Opciones: $10, $25, $50, $100, $250" });
+    }
+
+    const tenantData = await app.pg.query(
+      `SELECT name FROM tenants WHERE id = $1`,
+      [tenant.tenantId],
+    );
+    const tenantName = tenantData.rows[0]?.name ?? "Cliente";
+
+    const { clientSecret, stripeMode } = await createPaymentIntent(
+      body.amount_cents,
+      "usd",
+      `OVNI AI — Recarga de credito API (${tenantName})`,
+    );
+
+    return { client_secret: clientSecret, amount: body.amount_cents, stripe_mode: stripeMode };
+  });
+
+  // POST /portal/credit/recharge — verify payment and credit the tenant
+  app.post("/portal/credit/recharge", async (request, reply) => {
+    const tenant = request.tenant!;
+    const body = request.body as { payment_intent_id?: string; amount_cents?: number };
+
+    const VALID_AMOUNTS = [1000, 2500, 5000, 10000, 25000];
+    if (!body.amount_cents || !VALID_AMOUNTS.includes(body.amount_cents)) {
+      return reply.status(400).send({ error: "Monto invalido" });
+    }
+
+    // Verify the payment
+    const paymentResult = body.payment_intent_id
+      ? await verifyPaymentIntent(body.payment_intent_id)
+      : { success: !config.stripeSecretKey, reference: `mock_${Date.now()}` };
+
+    if (!paymentResult.success) {
+      return reply.status(402).send({ error: paymentResult.error ?? "Pago no completado" });
+    }
+
+    const { newBalance } = await addCredit(
+      app.pg,
+      tenant.tenantId,
+      body.amount_cents,
+      "recharge",
+      `Recarga manual: $${(body.amount_cents / 100).toFixed(2)}`,
+      paymentResult.reference,
+    );
+
+    return { status: "recharged", balance_cents: newBalance };
+  });
+
+  // PATCH /portal/credit/auto-recharge — toggle auto-recharge settings
+  app.patch("/portal/credit/auto-recharge", async (request, reply) => {
+    const tenant = request.tenant!;
+    const body = request.body as {
+      enabled: boolean;
+      amount_cents?: number;
+      threshold_cents?: number;
+    };
+
+    if (typeof body.enabled !== "boolean") {
+      return reply.status(400).send({ error: "enabled requerido (boolean)" });
+    }
+
+    const updates: string[] = ["auto_recharge = $2"];
+    const params: unknown[] = [tenant.tenantId, body.enabled];
+    let idx = 3;
+
+    if (body.amount_cents && body.amount_cents > 0) {
+      updates.push(`recharge_amount_cents = $${idx++}`);
+      params.push(body.amount_cents);
+    }
+    if (body.threshold_cents && body.threshold_cents >= 0) {
+      updates.push(`recharge_threshold_cents = $${idx++}`);
+      params.push(body.threshold_cents);
+    }
+
+    await app.pg.query(
+      `UPDATE tenants SET ${updates.join(", ")}, updated_at = NOW() WHERE id = $1`,
+      params,
+    );
+
+    return { status: "updated", auto_recharge: body.enabled };
   });
 
   // ── Channel Management ──────────────────────────────────
