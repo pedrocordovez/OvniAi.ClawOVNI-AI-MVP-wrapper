@@ -10,8 +10,8 @@ export default async function whatsappWebhookRoutes(app: FastifyInstance) {
 
     // Find active WhatsApp channel for this tenant
     const channelResult = await app.pg.query(
-      `SELECT mc.id AS channel_id, mc.config, mc.tenant_id,
-              t.id AS tenant_id, t.name, t.slug, t.anthropic_api_key,
+      `SELECT mc.id AS channel_id, mc.config,
+              t.id, t.name, t.slug, t.anthropic_api_key,
               t.default_model, t.allowed_models, t.system_prompt,
               t.plan_id, t.rpm_limit, t.tpm_limit, t.monthly_token_cap,
               t.monthly_seat_fee_cents, t.active
