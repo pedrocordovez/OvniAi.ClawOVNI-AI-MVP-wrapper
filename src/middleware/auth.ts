@@ -25,7 +25,8 @@ export async function tenantAuth(
        ak.id AS key_id, ak.user_id,
        t.id AS tenant_id, t.anthropic_api_key, t.default_model,
        t.allowed_models, t.system_prompt, t.rpm_limit, t.tpm_limit,
-       t.monthly_token_cap, t.plan_id
+       t.monthly_token_cap, t.plan_id,
+       t.credit_balance_cents, t.suspended, t.suspended_reason
      FROM api_keys ak
      JOIN tenants t ON t.id = ak.tenant_id
      WHERE ak.key_hash = $1 AND ak.active = true AND t.active = true`,
@@ -38,6 +39,28 @@ export async function tenantAuth(
   }
 
   const row = result.rows[0];
+
+  // Check if tenant is suspended (no credit)
+  if (row.suspended) {
+    reply.status(402).send({
+      error:   "account_suspended",
+      message: row.suspended_reason ?? "Cuenta suspendida. Recarga tu credito para continuar.",
+      credit_balance_cents: row.credit_balance_cents,
+    });
+    return;
+  }
+
+  // Check if tenant has credit for API calls (skip for portal/admin routes)
+  const url = request.url;
+  const isApiCall = url.startsWith("/v1/") || url.startsWith("/webchat/message");
+  if (isApiCall && row.credit_balance_cents <= 0) {
+    reply.status(402).send({
+      error:   "insufficient_credit",
+      message: "Credito agotado. Recarga tu balance para continuar usando la API.",
+      credit_balance_cents: 0,
+    });
+    return;
+  }
 
   const tenant: TenantContext = {
     tenantId:        row.tenant_id,

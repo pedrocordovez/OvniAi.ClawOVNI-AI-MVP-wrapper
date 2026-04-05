@@ -6,6 +6,7 @@ import { checkRateLimit } from "../middleware/rateLimit.js";
 import { getAnthropicClient } from "../services/anthropic.js";
 import { calculateCost } from "../services/tokenCounter.js";
 import { recordUsage } from "../services/usageEmitter.js";
+import { deductUsageCredit, processAutoRecharge } from "../services/creditManager.js";
 import type { TenantContext } from "../types.js";
 
 const ChatSchema = z.object({
@@ -99,6 +100,17 @@ async function handleSync(
     latencyMs, status: "success",
   }).catch(err => app.log.warn({ err }, "Failed to record usage"));
 
+  // Deduct from prepaid credit balance
+  const billedCents = Math.ceil(cost.billedCost * 100);
+  deductUsageCredit(app.pg, tenant.tenantId, billedCents, model,
+    response.usage.input_tokens, response.usage.output_tokens,
+  ).then(({ needsRecharge }) => {
+    if (needsRecharge) {
+      processAutoRecharge(app.pg, tenant.tenantId)
+        .catch(err => app.log.warn({ err }, "Auto-recharge failed"));
+    }
+  }).catch(err => app.log.warn({ err }, "Credit deduction failed"));
+
   return reply.send({
     id:      response.id,
     model:   response.model,
@@ -166,6 +178,16 @@ async function handleStreaming(
       anthropicCost: cost.anthropicCost, billedCost: cost.billedCost,
       latencyMs, status: "success",
     }).catch(err => app.log.warn({ err }, "Failed to record usage"));
+
+    // Deduct from prepaid credit balance
+    const billedCents = Math.ceil(cost.billedCost * 100);
+    deductUsageCredit(app.pg, tenant.tenantId, billedCents, model, inputTokens, outputTokens)
+      .then(({ needsRecharge }) => {
+        if (needsRecharge) {
+          processAutoRecharge(app.pg, tenant.tenantId)
+            .catch(err => app.log.warn({ err }, "Auto-recharge failed"));
+        }
+      }).catch(err => app.log.warn({ err }, "Credit deduction failed"));
   });
 
   await stream.finalMessage();

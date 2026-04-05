@@ -86,6 +86,20 @@ export async function provisionTenant(
       [tenantId, periodStart.toISOString().split("T")[0], periodEnd.toISOString().split("T")[0]],
     );
 
+    // Set initial prepaid credit (activation fee covers first month + initial API credit)
+    // Initial API credit = 50% of monthly fee (gives them runway to start using)
+    const initialCreditCents = Math.round(plan.monthlyFeeCents * 0.5);
+    await client.query(
+      `UPDATE tenants SET credit_balance_cents = $2, auto_recharge = false WHERE id = $1`,
+      [tenantId, initialCreditCents],
+    );
+    await client.query(
+      `INSERT INTO credit_transactions (tenant_id, type, amount_cents, balance_after, description)
+       VALUES ($1, 'initial_credit', $2, $2, $3)`,
+      [tenantId, initialCreditCents,
+       `Credito inicial incluido con Plan ${plan.name}: $${(initialCreditCents / 100).toFixed(2)}`],
+    );
+
     // Mark order as complete
     await client.query(
       `UPDATE provisioning_orders

@@ -1,6 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { tenantAuth } from "../middleware/auth.js";
 import { generateInvoicePdf } from "../services/pdfGenerator.js";
+import { getCreditStatus, getCreditHistory } from "../services/creditManager.js";
 
 export default async function portalRoutes(app: FastifyInstance) {
 
@@ -12,7 +13,9 @@ export default async function portalRoutes(app: FastifyInstance) {
 
     const [tenantInfo, periodInfo, usageInfo, instanceInfo] = await Promise.all([
       app.pg.query(
-        `SELECT name, slug, plan_id, default_model, monthly_token_cap, rpm_limit
+        `SELECT name, slug, plan_id, default_model, monthly_token_cap, rpm_limit,
+                credit_balance_cents, auto_recharge, recharge_amount_cents,
+                recharge_threshold_cents, suspended, suspended_reason
          FROM tenants WHERE id = $1`,
         [tenant.tenantId],
       ),
@@ -49,6 +52,14 @@ export default async function portalRoutes(app: FastifyInstance) {
         slug:  t.slug,
         plan:  t.plan_id,
         model: t.default_model,
+      },
+      credit: {
+        balance_cents:           t.credit_balance_cents,
+        auto_recharge:           t.auto_recharge,
+        recharge_amount_cents:   t.recharge_amount_cents,
+        recharge_threshold_cents: t.recharge_threshold_cents,
+        suspended:               t.suspended,
+        suspended_reason:        t.suspended_reason,
       },
       current_period: periodInfo.rows[0] ?? null,
       usage: {
@@ -143,5 +154,17 @@ export default async function portalRoutes(app: FastifyInstance) {
       .header("Content-Type", "application/pdf")
       .header("Content-Disposition", `inline; filename="${invoiceResult.rows[0].invoice_number}.pdf"`)
       .send(pdf);
+  });
+
+  // GET /portal/credit — credit balance and transaction history
+  app.get("/portal/credit", async (request) => {
+    const tenant = request.tenant!;
+
+    const [status, history] = await Promise.all([
+      getCreditStatus(app.pg, tenant.tenantId),
+      getCreditHistory(app.pg, tenant.tenantId, 50),
+    ]);
+
+    return { credit: status, transactions: history };
   });
 }
