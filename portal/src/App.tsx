@@ -283,6 +283,160 @@ function Invoices() {
   );
 }
 
+// ── Channels ─────────────────────────────────────────────
+function Channels() {
+  const { data, refetch } = useQuery({ queryKey: ["portal-channels"], queryFn: () => api<any>("/portal/channels") });
+  const channels = data?.channels ?? [];
+  const [telegramToken, setTelegramToken] = useState("");
+  const [connecting, setConnecting] = useState("");
+  const [result, setResult] = useState<any>(null);
+  const [error, setError] = useState("");
+
+  const connectTelegram = async () => {
+    setConnecting("telegram"); setError(""); setResult(null);
+    try {
+      const res = await fetch("/portal/channels/telegram", {
+        method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${getKey()}` },
+        body: JSON.stringify({ bot_token: telegramToken }),
+      });
+      const data = await res.json();
+      if (res.ok) { setResult(data); setTelegramToken(""); refetch(); }
+      else setError(data.error ?? "Error");
+    } catch { setError("Error de conexion"); }
+    finally { setConnecting(""); }
+  };
+
+  const getWebchat = async () => {
+    setConnecting("webchat"); setError(""); setResult(null);
+    try {
+      const res = await fetch("/portal/channels/webchat", {
+        method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${getKey()}` },
+      });
+      const data = await res.json();
+      if (res.ok) setResult(data);
+      else setError(data.error ?? "Error");
+    } catch { setError("Error de conexion"); }
+    finally { setConnecting(""); }
+  };
+
+  const disconnect = async (type: string) => {
+    if (!confirm(`Desconectar ${type}?`)) return;
+    await fetch(`/portal/channels/${type}`, {
+      method: "DELETE", headers: { Authorization: `Bearer ${getKey()}` },
+    });
+    refetch(); setResult(null);
+  };
+
+  const hasTelegram = channels.some((c: any) => c.channel_type === "telegram" && c.active);
+
+  return (
+    <div className="space-y-6">
+      <h2 className="text-[28px] font-extrabold text-gray-900 tracking-tight">Canales</h2>
+
+      {/* Connected channels */}
+      {channels.length > 0 && (
+        <div className="bg-white rounded-[14px] border border-gray-200 overflow-hidden">
+          <div className="px-5 py-3 border-b border-gray-100">
+            <span className="text-[13px] font-semibold text-gray-700">Canales conectados</span>
+          </div>
+          {channels.map((ch: any) => (
+            <div key={ch.id} className="flex items-center justify-between px-5 py-4 border-b border-gray-50">
+              <div className="flex items-center gap-3">
+                <div className={`w-2.5 h-2.5 rounded-full ${ch.active ? "bg-emerald-400" : "bg-gray-300"}`} />
+                <span className="text-[14px] font-semibold text-gray-700 capitalize">{ch.channel_type}</span>
+                <span className={`text-[11px] px-2 py-0.5 rounded-full font-medium ${ch.active ? "bg-emerald-50 text-emerald-600" : "bg-gray-100 text-gray-400"}`}>
+                  {ch.active ? "Activo" : "Desconectado"}
+                </span>
+              </div>
+              {ch.active && (
+                <button onClick={() => disconnect(ch.channel_type)}
+                  className="text-[12px] text-red-500 hover:underline">Desconectar</button>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Result message */}
+      {result && (
+        <div className="bg-emerald-50 border border-emerald-200 rounded-[14px] p-5">
+          <p className="text-[14px] font-semibold text-emerald-700">{result.message}</p>
+          {result.bot_username && <p className="text-[13px] text-emerald-600 mt-1">Bot: @{result.bot_username}</p>}
+          {result.embed_code && (
+            <div className="mt-3">
+              <p className="text-[12px] text-emerald-600 mb-2">{result.instructions}</p>
+              <pre className="bg-white border border-emerald-200 rounded-[10px] p-4 text-[12px] text-gray-700 overflow-x-auto font-mono whitespace-pre-wrap">{result.embed_code}</pre>
+              <button onClick={() => navigator.clipboard.writeText(result.embed_code)}
+                className="mt-2 text-[12px] font-semibold text-emerald-600 hover:underline">Copiar codigo</button>
+            </div>
+          )}
+        </div>
+      )}
+      {error && <div className="bg-red-50 border border-red-200 rounded-[14px] px-5 py-4 text-[13px] text-red-600">{error}</div>}
+
+      {/* Connect Telegram */}
+      <div className="bg-white rounded-[14px] border border-gray-200 p-6">
+        <div className="flex items-center gap-3 mb-4">
+          <span className="text-2xl">✈️</span>
+          <div>
+            <h3 className="text-[16px] font-bold text-gray-900">Telegram</h3>
+            <p className="text-[13px] text-gray-400">{hasTelegram ? "Conectado" : "Conecta un bot de Telegram"}</p>
+          </div>
+        </div>
+        {!hasTelegram ? (
+          <div className="space-y-3">
+            <div className="bg-gray-50 rounded-[10px] p-4 text-[13px] text-gray-500 space-y-1.5">
+              <p className="font-semibold text-gray-700">Como crear tu bot:</p>
+              <p>1. Abre Telegram y busca <strong>@BotFather</strong></p>
+              <p>2. Envia <code className="bg-white px-1.5 py-0.5 rounded text-[12px] border">/newbot</code></p>
+              <p>3. Sigue las instrucciones (nombre y username)</p>
+              <p>4. Copia el <strong>token</strong> que te da BotFather</p>
+              <p>5. Pegalo aqui abajo</p>
+            </div>
+            <div className="flex gap-3">
+              <input type="text" placeholder="123456789:ABCdefGHIjklMNOpqrsTUVwxyz" value={telegramToken}
+                onChange={e => setTelegramToken(e.target.value)}
+                className="flex-1 bg-white border border-gray-200 rounded-[10px] px-4 py-3 text-[14px] text-gray-900 placeholder:text-gray-300 focus:outline-none focus:border-gray-400 font-mono" />
+              <button onClick={connectTelegram} disabled={!telegramToken || connecting === "telegram"}
+                className="bg-black text-white px-6 py-3 rounded-[10px] text-[13px] font-semibold hover:bg-gray-800 disabled:bg-gray-200 disabled:text-gray-400 transition-all">
+                {connecting === "telegram" ? "Conectando..." : "Conectar"}
+              </button>
+            </div>
+          </div>
+        ) : (
+          <p className="text-[13px] text-emerald-600">Tu bot de Telegram esta activo y respondiendo mensajes.</p>
+        )}
+      </div>
+
+      {/* Web Chat Widget */}
+      <div className="bg-white rounded-[14px] border border-gray-200 p-6">
+        <div className="flex items-center gap-3 mb-4">
+          <span className="text-2xl">🌐</span>
+          <div>
+            <h3 className="text-[16px] font-bold text-gray-900">Web Chat</h3>
+            <p className="text-[13px] text-gray-400">Widget embebible para tu sitio web</p>
+          </div>
+        </div>
+        <button onClick={getWebchat} disabled={connecting === "webchat"}
+          className="bg-black text-white px-6 py-3 rounded-[10px] text-[13px] font-semibold hover:bg-gray-800 disabled:bg-gray-200 disabled:text-gray-400 transition-all">
+          {connecting === "webchat" ? "Generando..." : "Obtener codigo del widget"}
+        </button>
+      </div>
+
+      {/* WhatsApp (coming soon) */}
+      <div className="bg-white rounded-[14px] border border-gray-200 p-6 opacity-60">
+        <div className="flex items-center gap-3">
+          <span className="text-2xl">💬</span>
+          <div>
+            <h3 className="text-[16px] font-bold text-gray-900">WhatsApp</h3>
+            <p className="text-[13px] text-gray-400">Proximamente — Requiere cuenta Twilio Business</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Loading ──────────────────────────────────────────────
 function Loading() {
   return <div className="flex items-center justify-center py-20"><div className="w-8 h-8 border-[3px] border-gray-200 border-t-black rounded-full animate-spin" /></div>;
@@ -293,6 +447,7 @@ function Layout({ children, onLogout }: { children: React.ReactNode; onLogout: (
   const location = useLocation();
   const nav = [
     { path: "/", label: "Dashboard", icon: "◻" },
+    { path: "/channels", label: "Canales", icon: "◈" },
     { path: "/usage", label: "Uso", icon: "◈" },
     { path: "/credit", label: "Credito", icon: "◉" },
     { path: "/invoices", label: "Facturas", icon: "◇" },
@@ -340,6 +495,7 @@ export default function App() {
       <Layout onLogout={handleLogout}>
         <Routes>
           <Route path="/" element={<Dashboard />} />
+          <Route path="/channels" element={<Channels />} />
           <Route path="/usage" element={<Usage />} />
           <Route path="/credit" element={<Credit />} />
           <Route path="/invoices" element={<Invoices />} />

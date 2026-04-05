@@ -167,4 +167,131 @@ export default async function portalRoutes(app: FastifyInstance) {
 
     return { credit: status, transactions: history };
   });
+
+  // ── Channel Management ──────────────────────────────────
+
+  // GET /portal/channels — list connected channels
+  app.get("/portal/channels", async (request) => {
+    const tenant = request.tenant!;
+
+    const result = await app.pg.query(
+      `SELECT id, channel_type, active, created_at, updated_at
+       FROM messaging_channels WHERE tenant_id = $1 ORDER BY created_at`,
+      [tenant.tenantId],
+    );
+
+    return { channels: result.rows };
+  });
+
+  // POST /portal/channels/telegram — connect Telegram bot
+  app.post("/portal/channels/telegram", async (request, reply) => {
+    const tenant = request.tenant!;
+    const body = request.body as { bot_token: string };
+
+    if (!body.bot_token || !body.bot_token.includes(":")) {
+      return reply.status(400).send({ error: "Token de bot invalido. Debe tener formato: 123456789:ABCdef..." });
+    }
+
+    // Verify bot token is valid
+    const verifyRes = await fetch(`https://api.telegram.org/bot${body.bot_token}/getMe`);
+    const verifyData = await verifyRes.json() as any;
+
+    if (!verifyData.ok) {
+      return reply.status(400).send({ error: "Token de bot invalido. Verifica con @BotFather." });
+    }
+
+    const botUsername = verifyData.result.username;
+
+    // Check if telegram channel already exists
+    const existing = await app.pg.query(
+      `SELECT id FROM messaging_channels WHERE tenant_id = $1 AND channel_type = 'telegram'`,
+      [tenant.tenantId],
+    );
+
+    if (existing.rowCount && existing.rowCount > 0) {
+      // Update existing
+      await app.pg.query(
+        `UPDATE messaging_channels SET config = $2, active = true, updated_at = NOW() WHERE id = $1`,
+        [existing.rows[0].id, JSON.stringify({ botToken: body.bot_token, botUsername })],
+      );
+    } else {
+      // Create new
+      await app.pg.query(
+        `INSERT INTO messaging_channels (tenant_id, channel_type, config, active)
+         VALUES ($1, 'telegram', $2, true)`,
+        [tenant.tenantId, JSON.stringify({ botToken: body.bot_token, botUsername })],
+      );
+    }
+
+    // Set webhook with Telegram API
+    const webhookUrl = `https://new.ovni.ai/webhooks/telegram/${tenant.tenantId}`;
+    const whRes = await fetch(`https://api.telegram.org/bot${body.bot_token}/setWebhook`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ url: webhookUrl }),
+    });
+    const whData = await whRes.json() as any;
+
+    if (!whData.ok) {
+      return reply.status(500).send({ error: "No se pudo configurar el webhook de Telegram." });
+    }
+
+    return {
+      status: "connected",
+      channel: "telegram",
+      bot_username: botUsername,
+      webhook_url: webhookUrl,
+      message: `Bot @${botUsername} conectado! Los mensajes que reciba seran respondidos por tu agente AI.`,
+    };
+  });
+
+  // POST /portal/channels/webchat — enable web chat widget
+  app.post("/portal/channels/webchat", async (request, reply) => {
+    const tenant = request.tenant!;
+
+    // Get or create API key for webchat
+    const keyResult = await app.pg.query(
+      `SELECT key_prefix FROM api_keys WHERE tenant_id = $1 AND active = true LIMIT 1`,
+      [tenant.tenantId],
+    );
+
+    if (!keyResult.rowCount) {
+      return reply.status(400).send({ error: "No hay API key activa. Contacta soporte." });
+    }
+
+    return {
+      status: "ready",
+      channel: "webchat",
+      embed_code: `<script>\nwindow.OvniChat = {\n  apiKey: "${keyResult.rows[0].key_prefix}...",\n  apiUrl: "https://new.ovni.ai",\n  title: "Chat con IA",\n  color: "#000"\n};\n</script>\n<script src="https://new.ovni.ai/webchat/widget.js"></script>`,
+      instructions: "Pega este codigo antes del </body> de tu sitio web. Reemplaza el apiKey con tu key completa.",
+      message: "Widget listo! Pega el codigo en tu sitio web.",
+    };
+  });
+
+  // DELETE /portal/channels/:type — disconnect channel
+  app.delete<{ Params: { type: string } }>("/portal/channels/:type", async (request, reply) => {
+    const tenant = request.tenant!;
+    const { type } = request.params;
+
+    const result = await app.pg.query(
+      `UPDATE messaging_channels SET active = false, updated_at = NOW()
+       WHERE tenant_id = $1 AND channel_type = $2 AND active = true
+       RETURNING id, config`,
+      [tenant.tenantId, type],
+    );
+
+    if (!result.rowCount) {
+      return reply.status(404).send({ error: "Canal no encontrado o ya desconectado." });
+    }
+
+    // Remove Telegram webhook if disconnecting telegram
+    if (type === "telegram") {
+      const config = result.rows[0].config as { botToken?: string };
+      if (config.botToken) {
+        await fetch(`https://api.telegram.org/bot${config.botToken}/deleteWebhook`).catch(() => {});
+      }
+    }
+
+    return { status: "disconnected", channel: type };
+  });
 }
