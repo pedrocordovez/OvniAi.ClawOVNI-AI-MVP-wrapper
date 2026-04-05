@@ -14,6 +14,7 @@ import portalRoutes from "./routes/portal.js";
 import stripeWebhookRoutes from "./routes/webhooks/stripe.js";
 import whatsappWebhookRoutes from "./routes/webhooks/whatsapp.js";
 import telegramWebhookRoutes from "./routes/webhooks/telegram.js";
+import webchatRoutes from "./routes/webchat.js";
 import { startBillingWorker } from "./workers/billingWorker.js";
 import { startBillingCron } from "./workers/billingCron.js";
 import { startHealthCheckWorker } from "./workers/healthCheckWorker.js";
@@ -65,6 +66,9 @@ async function main() {
 
   // ── Portal routes ────────────────────────────────────────
   await app.register(portalRoutes);
+
+  // ── Web Chat widget ──────────────────────────────────
+  await app.register(webchatRoutes);
 
   // ── Webhook routes ───────────────────────────────────────
   await app.register(stripeWebhookRoutes);
