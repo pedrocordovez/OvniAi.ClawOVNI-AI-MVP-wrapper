@@ -7,7 +7,11 @@ import type { FastifyInstance } from "fastify";
 
 export const dbPlugin = fp(async (app: FastifyInstance) => {
   // ── PostgreSQL ──────────────────────────────────────────────
-  const pool = new Pool({ connectionString: config.dbUrl });
+  const poolConfig: Record<string, unknown> = { connectionString: config.dbUrl };
+  if (config.nodeEnv === "production") {
+    poolConfig.ssl = { rejectUnauthorized: false };
+  }
+  const pool = new Pool(poolConfig);
   await pool.query("SELECT 1"); // verify connection
   app.decorate("pg", pool);
   app.log.info("PostgreSQL connected");
@@ -18,7 +22,11 @@ export const dbPlugin = fp(async (app: FastifyInstance) => {
   app.log.info("Redis connected");
 
   // ── pg-boss ─────────────────────────────────────────────────
-  const boss = new PgBoss({ connectionString: config.dbUrl });
+  const bossConfig: Record<string, unknown> = { connectionString: config.dbUrl };
+  if (config.nodeEnv === "production") {
+    bossConfig.ssl = { rejectUnauthorized: false };
+  }
+  const boss = new PgBoss(bossConfig);
   await boss.start();
   app.decorate("boss", boss);
   app.log.info("pg-boss started");
