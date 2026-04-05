@@ -8,6 +8,7 @@ import {
   sendPaymentFailedEmail,
   sendOpsAlert,
 } from "../services/email.js";
+import { buildAgentProfile } from "../services/agentBuilder.js";
 
 const ProvisionSchema = z.object({
   idempotency_key: z.string().min(8).max(128),
@@ -20,6 +21,8 @@ const ProvisionSchema = z.object({
   card_name:       z.string().min(1),
   expiry:          z.string().regex(/^\d{2}\/\d{2}$/, "Format MM/YY"),
   cvv:             z.string().min(3).max(4),
+  channels:        z.record(z.unknown()).optional(),
+  software_stack:  z.record(z.unknown()).optional(),
 });
 
 export default async function provisionRoutes(app: FastifyInstance) {
@@ -127,16 +130,29 @@ export default async function provisionRoutes(app: FastifyInstance) {
     );
 
     // 6. Provision tenant
+    // Build personalized agent based on onboarding answers
+    const agentProfile = buildAgentProfile({
+      companyName:   d.company_name,
+      industry:      d.industry,
+      contactName:   d.contact_name,
+      planId:        d.plan_id,
+      channels:      d.channels,
+      softwareStack: d.software_stack,
+    });
+
     let provisionResult;
     try {
       provisionResult = await provisionTenant(app.pg, {
         orderId,
-        companyName:  d.company_name,
-        companySlug:  slug,
-        contactName:  d.contact_name,
-        contactEmail: d.contact_email,
-        industry:     d.industry,
-        planId:       d.plan_id,
+        companyName:   d.company_name,
+        companySlug:   slug,
+        contactName:   d.contact_name,
+        contactEmail:  d.contact_email,
+        industry:      d.industry,
+        planId:        d.plan_id,
+        systemPrompt:  agentProfile.systemPrompt,
+        channels:      d.channels,
+        softwareStack: d.software_stack,
       });
     } catch (err) {
       app.log.error({ err, orderId }, "Provisioning failed after successful payment");

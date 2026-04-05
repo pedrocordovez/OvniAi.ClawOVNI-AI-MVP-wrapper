@@ -4,14 +4,15 @@ import { generateTenantKey } from "./keyGenerator.js";
 import { getOrCreateBillingPeriod } from "./billing.js";
 
 export interface ProvisionInput {
-  orderId:       string;
-  companyName:   string;
-  companySlug:   string;
-  contactName:   string;
-  contactEmail:  string;
-  industry:      string;
-  planId:        PlanId;
-  channels?:     Record<string, unknown>;
+  orderId:        string;
+  companyName:    string;
+  companySlug:    string;
+  contactName:    string;
+  contactEmail:   string;
+  industry:       string;
+  planId:         PlanId;
+  systemPrompt?:  string;
+  channels?:      Record<string, unknown>;
   softwareStack?: Record<string, unknown>;
 }
 
@@ -43,14 +44,14 @@ export async function provisionTenant(
     // Create tenant
     const tenantResult = await client.query(
       `INSERT INTO tenants
-         (name, slug, anthropic_api_key, default_model, plan_id,
+         (name, slug, anthropic_api_key, default_model, system_prompt, plan_id,
           rpm_limit, tpm_limit, monthly_token_cap, monthly_seat_fee_cents)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
        RETURNING id`,
       [
         data.companyName, data.companySlug,
         config.anthropicApiKey, // default key; admin assigns per-tenant later
-        plan.model, data.planId,
+        plan.model, data.systemPrompt ?? null, data.planId,
         plan.rpmLimit, plan.tpmLimit,
         plan.monthlyTokenCap, 0,
       ],
@@ -102,6 +103,7 @@ export async function provisionTenant(
       tenantSlug:    data.companySlug,
       anthropicKey:  config.anthropicApiKey,
       defaultModel:  plan.model,
+      systemPrompt:  data.systemPrompt,
       channels:      data.channels,
       softwareStack: data.softwareStack,
     });
