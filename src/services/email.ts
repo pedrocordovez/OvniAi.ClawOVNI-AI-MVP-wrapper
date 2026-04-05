@@ -135,6 +135,106 @@ export async function sendInvoiceEmail(data: {
   );
 }
 
+// ─── Send credit depleted notification (account suspended) ──────────────────
+
+export async function sendCreditDepletedEmail(data: {
+  to: string; contactName: string; companyName: string;
+}): Promise<void> {
+  await sendEmail(
+    data.to,
+    `Servicio suspendido — Credito agotado — OVNI AI`,
+    `<!DOCTYPE html>
+<html lang="es"><head><meta charset="UTF-8"><title>Credito agotado</title></head>
+<body style="margin:0;padding:0;background:#0a0a12;font-family:'Helvetica Neue',Arial,sans-serif;color:#e2e8f0">
+<table width="100%" cellpadding="0" cellspacing="0" style="background:#0a0a12;padding:40px 0">
+<tr><td align="center">
+<table width="540" cellpadding="0" cellspacing="0" style="background:#0d0f1a;border-radius:16px;border:1px solid rgba(239,68,68,0.2);overflow:hidden">
+  <tr><td style="background:linear-gradient(135deg,#0f0b1e,#141428);padding:24px 40px;text-align:center;border-bottom:1px solid rgba(127,119,221,0.15)">
+    <div style="font-size:20px;font-weight:700">OVNI <span style="color:#7F77DD">AI</span></div>
+  </td></tr>
+  <tr><td style="padding:32px 40px;text-align:center">
+    <div style="font-size:32px;margin-bottom:16px">&#9888;</div>
+    <h1 style="margin:0 0 12px;font-size:22px;font-weight:700;color:#f1f5f9">Tu servicio ha sido suspendido</h1>
+    <p style="margin:0;font-size:14px;color:#64748b;line-height:1.6">
+      Hola ${data.contactName}, el credito de API de <strong style="color:#c4b5fd">${data.companyName}</strong> se ha agotado
+      y tu servicio de inteligencia artificial ha sido suspendido temporalmente.
+    </p>
+  </td></tr>
+  <tr><td style="padding:0 40px 24px">
+    <div style="background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.2);border-radius:10px;padding:16px 20px;font-size:13px;color:#f87171">
+      <strong>Que significa esto:</strong><br>
+      - Tu agente AI no podra responder mensajes<br>
+      - Las llamadas a la API retornaran error 402<br>
+      - Tus datos y configuracion estan seguros
+    </div>
+  </td></tr>
+  <tr><td style="padding:0 40px 28px">
+    <div style="background:rgba(34,197,94,0.08);border:1px solid rgba(34,197,94,0.2);border-radius:10px;padding:16px 20px;font-size:13px;color:#4ade80">
+      <strong>Como reactivar:</strong><br>
+      1. Ingresa a tu portal: <a href="https://new.ovni.ai/portal-app/" style="color:#7F77DD">new.ovni.ai/portal-app</a><br>
+      2. Recarga tu credito de API<br>
+      3. Tu servicio se reactivara automaticamente<br><br>
+      <em>Tip: Activa la recarga automatica para que esto no vuelva a pasar.</em>
+    </div>
+  </td></tr>
+  <tr><td style="background:#080810;padding:16px 40px;text-align:center;border-top:1px solid rgba(255,255,255,0.05)">
+    <p style="margin:0;font-size:11px;color:#334155">Necesitas ayuda? soporte@ovni.ai</p>
+  </td></tr>
+</table></td></tr></table>
+</body></html>`,
+  );
+}
+
+// ─── Send credit low warning ────────────────────────────────────────────────
+
+export async function sendCreditLowEmail(data: {
+  to: string; contactName: string; companyName: string;
+  balanceCents: number; thresholdCents: number;
+}): Promise<void> {
+  const balance = (data.balanceCents / 100).toFixed(2);
+  await sendEmail(
+    data.to,
+    `Credito bajo — $${balance} restante — OVNI AI`,
+    `<!DOCTYPE html>
+<html lang="es"><head><meta charset="UTF-8"><title>Credito bajo</title></head>
+<body style="margin:0;padding:0;background:#0a0a12;font-family:'Helvetica Neue',Arial,sans-serif;color:#e2e8f0">
+<table width="100%" cellpadding="0" cellspacing="0" style="background:#0a0a12;padding:40px 0">
+<tr><td align="center">
+<table width="540" cellpadding="0" cellspacing="0" style="background:#0d0f1a;border-radius:16px;border:1px solid rgba(234,179,8,0.2);overflow:hidden">
+  <tr><td style="background:linear-gradient(135deg,#0f0b1e,#141428);padding:24px 40px;text-align:center;border-bottom:1px solid rgba(127,119,221,0.15)">
+    <div style="font-size:20px;font-weight:700">OVNI <span style="color:#7F77DD">AI</span></div>
+  </td></tr>
+  <tr><td style="padding:32px 40px;text-align:center">
+    <div style="font-size:32px;margin-bottom:16px">&#9888;</div>
+    <h1 style="margin:0 0 12px;font-size:22px;font-weight:700;color:#f1f5f9">Tu credito esta bajo</h1>
+    <p style="margin:0;font-size:14px;color:#64748b;line-height:1.6">
+      Hola ${data.contactName}, el credito de API de <strong style="color:#c4b5fd">${data.companyName}</strong>
+      esta por agotarse.
+    </p>
+  </td></tr>
+  <tr><td style="padding:0 40px 24px;text-align:center">
+    <div style="background:#080810;border:1px solid rgba(234,179,8,0.25);border-radius:12px;padding:20px;display:inline-block">
+      <div style="font-size:11px;color:#475569;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px">Balance actual</div>
+      <div style="font-size:28px;font-weight:700;color:#eab308">$${balance} USD</div>
+    </div>
+  </td></tr>
+  <tr><td style="padding:0 40px 28px">
+    <div style="background:rgba(234,179,8,0.08);border:1px solid rgba(234,179,8,0.2);border-radius:10px;padding:16px 20px;font-size:13px;color:#eab308">
+      Si tu credito llega a $0, tu servicio se suspenderah automaticamente.<br><br>
+      <strong>Recomendacion:</strong> Activa la recarga automatica desde tu portal para evitar interrupciones.
+    </div>
+  </td></tr>
+  <tr><td style="padding:0 40px 28px;text-align:center">
+    <a href="https://new.ovni.ai/portal-app/" style="display:inline-block;background:#7F77DD;color:#fff;text-decoration:none;padding:12px 32px;border-radius:8px;font-size:14px;font-weight:600">Recargar credito</a>
+  </td></tr>
+  <tr><td style="background:#080810;padding:16px 40px;text-align:center;border-top:1px solid rgba(255,255,255,0.05)">
+    <p style="margin:0;font-size:11px;color:#334155">Necesitas ayuda? soporte@ovni.ai</p>
+  </td></tr>
+</table></td></tr></table>
+</body></html>`,
+  );
+}
+
 // ─── HTML Templates ──────────────────────────────────────────────────────────
 
 function welcomeTemplate(d: {

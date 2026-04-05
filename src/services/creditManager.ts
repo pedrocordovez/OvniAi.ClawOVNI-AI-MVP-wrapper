@@ -1,5 +1,6 @@
 import type { Pool } from "pg";
 import { config } from "../config.js";
+import { sendCreditDepletedEmail, sendCreditLowEmail } from "./email.js";
 
 /**
  * Credit Manager — handles prepaid credit balance for tenants.
@@ -126,6 +127,16 @@ export async function deductUsageCredit(
     let suspended = false;
 
     if (newBalance <= threshold) {
+      // Get tenant contact info for notifications
+      const tenantInfo = await client.query(
+        `SELECT t.name, u.email, u.name AS contact_name
+         FROM tenants t
+         JOIN users u ON u.tenant_id = t.id AND u.role = 'admin'
+         WHERE t.id = $1 LIMIT 1`,
+        [tenantId],
+      );
+      const contact = tenantInfo.rows[0];
+
       if (autoRecharge) {
         needsRecharge = true;
       } else if (newBalance <= 0) {
@@ -136,6 +147,26 @@ export async function deductUsageCredit(
           [tenantId],
         );
         suspended = true;
+
+        // Notify client via email
+        if (contact) {
+          sendCreditDepletedEmail({
+            to: contact.email,
+            contactName: contact.contact_name,
+            companyName: contact.name,
+          }).catch(() => {}); // fire-and-forget
+        }
+      } else {
+        // Credit is low but not zero — send warning
+        if (contact) {
+          sendCreditLowEmail({
+            to: contact.email,
+            contactName: contact.contact_name,
+            companyName: contact.name,
+            balanceCents: newBalance,
+            thresholdCents: threshold,
+          }).catch(() => {}); // fire-and-forget
+        }
       }
     }
 
