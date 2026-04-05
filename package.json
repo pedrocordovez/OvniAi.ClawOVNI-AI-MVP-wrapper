@@ -8,7 +8,9 @@
     "build": "tsc",
     "start": "node dist/server.js",
     "db:seed": "tsx src/db/seed.ts",
-    "db:migrate": "tsx src/db/migrate.ts"
+    "db:migrate": "node-pg-migrate up --config migrate.json",
+    "db:migrate:down": "node-pg-migrate down --config migrate.json",
+    "db:migrate:create": "node-pg-migrate create --config migrate.json"
   },
   "engines": {
     "node": ">=20.0.0"
@@ -21,6 +23,7 @@
     "fastify-plugin": "^4.5.1",
     "ioredis": "^5.4.1",
     "node-cron": "^3.0.3",
+    "node-pg-migrate": "^8.0.4",
     "otpauth": "^9.3.1",
     "pdfkit": "^0.15.0",
     "pg": "^8.12.0",
