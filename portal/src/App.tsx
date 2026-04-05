@@ -35,9 +35,7 @@ function Login({ onLogin }: { onLogin: () => void }) {
     <div className="min-h-screen bg-[#fafafa] flex items-center justify-center p-4">
       <div className="w-full max-w-[400px]">
         <div className="flex items-center gap-2.5 mb-8 justify-center">
-          <div className="w-9 h-9 bg-black rounded-[10px] flex items-center justify-center">
-            <span className="text-white text-[14px] font-black">O</span>
-          </div>
+          <img src="/logo.png" alt="OVNI AI" className="w-9 h-9 object-contain" />
           <span className="text-[18px] font-bold text-gray-900">OVNI AI</span>
         </div>
         <div className="bg-white rounded-[20px] border border-gray-200 shadow-sm p-8">
@@ -592,9 +590,7 @@ function Layout({ children, onLogout }: { children: React.ReactNode; onLogout: (
         <div className="max-w-6xl mx-auto px-6 flex items-center justify-between h-14">
           <div className="flex items-center gap-8">
             <div className="flex items-center gap-2">
-              <div className="w-7 h-7 bg-black rounded-[8px] flex items-center justify-center">
-                <span className="text-white text-[11px] font-black">O</span>
-              </div>
+              <img src="/logo.png" alt="OVNI AI" className="w-7 h-7 object-contain" />
               <span className="text-[15px] font-bold text-gray-900">OVNI AI</span>
             </div>
             <nav className="flex gap-1">

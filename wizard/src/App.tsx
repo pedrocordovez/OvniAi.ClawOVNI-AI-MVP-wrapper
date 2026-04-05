@@ -170,9 +170,7 @@ export default function App() {
         {/* Logo + Progress */}
         <div className="mb-8">
           <div className="flex items-center gap-2.5 mb-8">
-            <div className="w-9 h-9 bg-black rounded-[10px] flex items-center justify-center">
-              <span className="text-white text-[14px] font-black tracking-tight">O</span>
-            </div>
+            <img src="/logo.png" alt="OVNI AI" className="w-9 h-9 object-contain" />
             <span className="text-[18px] font-bold text-gray-900 tracking-tight">OVNI AI</span>
           </div>
 

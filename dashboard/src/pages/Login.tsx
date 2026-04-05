@@ -25,9 +25,7 @@ export default function Login() {
     <div className="min-h-screen bg-[#fafafa] flex items-center justify-center p-4">
       <div className="w-full max-w-[400px]">
         <div className="flex items-center gap-2.5 mb-8 justify-center">
-          <div className="w-9 h-9 bg-black rounded-[10px] flex items-center justify-center">
-            <span className="text-white text-[14px] font-black">O</span>
-          </div>
+          <img src="/logo.png" alt="OVNI AI" className="w-9 h-9 object-contain" />
           <span className="text-[18px] font-bold text-gray-900">OVNI AI</span>
           <span className="text-[11px] font-medium text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full">Admin</span>
         </div>

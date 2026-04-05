@@ -152,7 +152,7 @@ body{font-family:'Inter',system-ui,sans-serif;background:#fafafa;color:#111;heig
 </head>
 <body>
 <div class="header">
-  <span class="logo">O</span>
+  <img src="/landing/logo.png" alt="" style="width:28px;height:28px;object-fit:contain">
   <h1>${agentName}</h1>
   <span class="powered">Powered by OVNI AI</span>
 </div>

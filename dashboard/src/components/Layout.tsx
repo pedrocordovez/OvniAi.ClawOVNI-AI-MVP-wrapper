@@ -20,9 +20,7 @@ export default function Layout({ children }: { children: ReactNode }) {
         <div className="max-w-7xl mx-auto px-6 flex items-center justify-between h-14">
           <div className="flex items-center gap-8">
             <div className="flex items-center gap-2">
-              <div className="w-7 h-7 bg-black rounded-[8px] flex items-center justify-center">
-                <span className="text-white text-[11px] font-black">O</span>
-              </div>
+              <img src="/logo.png" alt="OVNI AI" className="w-7 h-7 object-contain" />
               <span className="text-[15px] font-bold text-gray-900">OVNI AI</span>
               <span className="text-[11px] font-medium text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full ml-1">Admin</span>
             </div>
