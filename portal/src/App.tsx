@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { BrowserRouter, Routes, Route, Link, useLocation, Navigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 
@@ -283,6 +283,137 @@ function Invoices() {
   );
 }
 
+// ── Agent Management ─────────────────────────────────────
+function AgentPage() {
+  const { data, refetch } = useQuery({ queryKey: ["portal-agent"], queryFn: () => api<any>("/portal/agent") });
+  const [editing, setEditing] = useState(false);
+  const [prompt, setPrompt] = useState("");
+  const [knowledge, setKnowledge] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [msg, setMsg] = useState("");
+
+  useEffect(() => {
+    if (data?.agent?.system_prompt) {
+      const sp = data.agent.system_prompt;
+      const sep = "--- CONOCIMIENTO ADICIONAL ---";
+      if (sp.includes(sep)) {
+        setPrompt(sp.split(sep)[0].trim());
+        setKnowledge(sp.split(sep)[1]?.trim() ?? "");
+      } else {
+        setPrompt(sp);
+      }
+    }
+  }, [data]);
+
+  const save = async () => {
+    setSaving(true); setMsg("");
+    try {
+      const body: any = {};
+      if (knowledge) body.additional_knowledge = knowledge;
+      else body.system_prompt = prompt;
+      const res = await fetch("/portal/agent", {
+        method: "PATCH", headers: { "Content-Type": "application/json", Authorization: `Bearer ${getKey()}` },
+        body: JSON.stringify(body),
+      });
+      const d = await res.json();
+      if (res.ok) { setMsg("Guardado!"); setEditing(false); refetch(); }
+      else setMsg(d.error ?? "Error");
+    } catch { setMsg("Error de conexion"); }
+    finally { setSaving(false); }
+  };
+
+  if (!data) return <Loading />;
+  const { agent, share_links, channels } = data;
+
+  return (
+    <div className="space-y-6">
+      <h2 className="text-[28px] font-extrabold text-gray-900 tracking-tight">Tu Agente AI</h2>
+
+      {/* Share Links */}
+      <div className="bg-white rounded-[14px] border border-gray-200 p-6">
+        <h3 className="text-[14px] font-bold text-gray-900 mb-4">Comparte tu agente</h3>
+        <div className="space-y-3">
+          {share_links.chat_page && (
+            <div className="flex items-center gap-3">
+              <span className="text-lg">🌐</span>
+              <div className="flex-1">
+                <p className="text-[12px] font-semibold text-gray-500">Pagina de chat publica</p>
+                <a href={share_links.chat_page} target="_blank" rel="noopener"
+                  className="text-[14px] font-medium text-blue-600 hover:underline break-all">{share_links.chat_page}</a>
+              </div>
+              <button onClick={() => navigator.clipboard.writeText(share_links.chat_page)}
+                className="text-[12px] font-semibold text-gray-400 hover:text-black">Copiar</button>
+            </div>
+          )}
+          {share_links.telegram && (
+            <div className="flex items-center gap-3">
+              <span className="text-lg">✈️</span>
+              <div className="flex-1">
+                <p className="text-[12px] font-semibold text-gray-500">Telegram</p>
+                <a href={share_links.telegram} target="_blank" rel="noopener"
+                  className="text-[14px] font-medium text-blue-600 hover:underline">{share_links.telegram}</a>
+              </div>
+              <button onClick={() => navigator.clipboard.writeText(share_links.telegram)}
+                className="text-[12px] font-semibold text-gray-400 hover:text-black">Copiar</button>
+            </div>
+          )}
+        </div>
+        <p className="text-[12px] text-gray-400 mt-4">Comparte estos links con tus clientes para que hablen con tu agente AI.</p>
+      </div>
+
+      {/* Agent Info */}
+      <div className="bg-white rounded-[14px] border border-gray-200 p-6">
+        <div className="flex justify-between items-center mb-4">
+          <h3 className="text-[14px] font-bold text-gray-900">Configuracion</h3>
+          <button onClick={() => setEditing(!editing)}
+            className="text-[12px] font-semibold text-black hover:underline">{editing ? "Cancelar" : "Editar"}</button>
+        </div>
+        <div className="grid grid-cols-2 gap-4 mb-4">
+          <div><p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider">Nombre</p><p className="text-[14px] text-gray-700 mt-0.5">{agent.name}</p></div>
+          <div><p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider">Plan</p><p className="text-[14px] text-gray-700 mt-0.5 capitalize">{agent.plan}</p></div>
+          <div><p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider">Modelo</p><p className="text-[14px] text-gray-700 mt-0.5 font-mono text-[12px]">{agent.model}</p></div>
+          <div><p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider">Canales activos</p><p className="text-[14px] text-gray-700 mt-0.5">{channels.filter((c:any)=>c.active).map((c:any)=>c.type).join(", ")||"Ninguno"}</p></div>
+        </div>
+
+        {!editing && (
+          <div>
+            <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider mb-1">Instrucciones del agente</p>
+            <div className="bg-gray-50 rounded-[10px] p-4 text-[13px] text-gray-600 whitespace-pre-wrap max-h-[200px] overflow-y-auto leading-relaxed">{prompt || "Sin instrucciones configuradas"}</div>
+            {knowledge && (
+              <div className="mt-3">
+                <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider mb-1">Conocimiento adicional</p>
+                <div className="bg-gray-50 rounded-[10px] p-4 text-[13px] text-gray-600 whitespace-pre-wrap max-h-[150px] overflow-y-auto leading-relaxed">{knowledge}</div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {editing && (
+          <div className="space-y-4">
+            <div>
+              <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider mb-1">Instrucciones del agente</p>
+              <textarea rows={8} value={prompt} onChange={e => setPrompt(e.target.value)}
+                className="w-full bg-white border border-gray-200 rounded-[10px] px-4 py-3 text-[13px] text-gray-900 focus:outline-none focus:border-gray-400 resize-none font-mono leading-relaxed" />
+            </div>
+            <div>
+              <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider mb-1">Conocimiento adicional</p>
+              <p className="text-[11px] text-gray-400 mb-1.5">Agrega informacion que tu agente debe conocer: precios, horarios, productos, FAQ, politicas, etc.</p>
+              <textarea rows={6} value={knowledge} onChange={e => setKnowledge(e.target.value)}
+                placeholder="Ej: Nuestro horario es Lun-Vie 8am-6pm. Los precios son: Consulta $50, Seguimiento $30..."
+                className="w-full bg-white border border-gray-200 rounded-[10px] px-4 py-3 text-[13px] text-gray-900 placeholder:text-gray-300 focus:outline-none focus:border-gray-400 resize-none leading-relaxed" />
+            </div>
+            {msg && <p className={`text-[13px] ${msg === "Guardado!" ? "text-emerald-600" : "text-red-500"}`}>{msg}</p>}
+            <button onClick={save} disabled={saving}
+              className="bg-black text-white px-6 py-3 rounded-[10px] text-[13px] font-semibold hover:bg-gray-800 disabled:bg-gray-200 disabled:text-gray-400">
+              {saving ? "Guardando..." : "Guardar cambios"}
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ── Channels ─────────────────────────────────────────────
 function Channels() {
   const { data, refetch } = useQuery({ queryKey: ["portal-channels"], queryFn: () => api<any>("/portal/channels") });
@@ -447,6 +578,7 @@ function Layout({ children, onLogout }: { children: React.ReactNode; onLogout: (
   const location = useLocation();
   const nav = [
     { path: "/", label: "Dashboard", icon: "◻" },
+    { path: "/agent", label: "Agente", icon: "◈" },
     { path: "/channels", label: "Canales", icon: "◈" },
     { path: "/usage", label: "Uso", icon: "◈" },
     { path: "/credit", label: "Credito", icon: "◉" },
@@ -495,6 +627,7 @@ export default function App() {
       <Layout onLogout={handleLogout}>
         <Routes>
           <Route path="/" element={<Dashboard />} />
+          <Route path="/agent" element={<AgentPage />} />
           <Route path="/channels" element={<Channels />} />
           <Route path="/usage" element={<Usage />} />
           <Route path="/credit" element={<Credit />} />

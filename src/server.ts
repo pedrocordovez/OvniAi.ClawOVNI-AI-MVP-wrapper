@@ -15,6 +15,7 @@ import stripeWebhookRoutes from "./routes/webhooks/stripe.js";
 import whatsappWebhookRoutes from "./routes/webhooks/whatsapp.js";
 import telegramWebhookRoutes from "./routes/webhooks/telegram.js";
 import webchatRoutes from "./routes/webchat.js";
+import hostedChatRoutes from "./routes/hostedChat.js";
 import { startBillingWorker } from "./workers/billingWorker.js";
 import { startBillingCron } from "./workers/billingCron.js";
 import { startHealthCheckWorker } from "./workers/healthCheckWorker.js";
@@ -55,6 +56,7 @@ async function main() {
   // ── Public routes ────────────────────────────────────────
   await app.register(chatRoutes);
   await app.register(provisionRoutes);
+  await app.register(hostedChatRoutes);
 
   // ── Admin routes ─────────────────────────────────────────
   await app.register(adminTenantRoutes,  { prefix: "/admin" });
