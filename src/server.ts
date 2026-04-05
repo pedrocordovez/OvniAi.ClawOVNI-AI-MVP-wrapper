@@ -21,9 +21,31 @@ import { startMeteringProxy } from "./services/meteringProxy.js";
 
 const app = Fastify({ logger: true });
 
+// ── Environment validation (INFRA-04) ──────────────────────
+function validateEnv() {
+  const required = ["DATABASE_URL", "REDIS_URL"];
+  if (config.nodeEnv === "production") {
+    required.push("ANTHROPIC_API_KEY", "VAULT_ENCRYPTION_KEY");
+  }
+  const missing = required.filter((k) => !process.env[k]);
+  if (missing.length > 0) {
+    console.error(`FATAL: Missing required environment variables: ${missing.join(", ")}`);
+    process.exit(1);
+  }
+  if (process.env.VAULT_ENCRYPTION_KEY === "0".repeat(64)) {
+    console.error("FATAL: VAULT_ENCRYPTION_KEY is set to default zeros. Generate a real key.");
+    process.exit(1);
+  }
+}
+
 async function main() {
+  validateEnv();
+
   // ── Plugins ──────────────────────────────────────────────
-  await app.register(cors, { origin: true });
+  const corsOrigin = config.nodeEnv === "production"
+    ? ["https://new.ovni.ai", "https://ovni.ai"]
+    : true;
+  await app.register(cors, { origin: corsOrigin });
   await app.register(dbPlugin);
 
   // ── Health ───────────────────────────────────────────────
@@ -67,3 +89,12 @@ main().catch((err) => {
   console.error("Failed to start server:", err);
   process.exit(1);
 });
+
+// ── Graceful shutdown (SEC-04) ────────────────────────────────
+for (const signal of ["SIGINT", "SIGTERM"] as const) {
+  process.on(signal, async () => {
+    app.log.info(`Received ${signal}, shutting down gracefully...`);
+    await app.close();
+    process.exit(0);
+  });
+}
